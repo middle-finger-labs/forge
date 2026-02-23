@@ -1,0 +1,20 @@
+{
+  "started_at": "2026-02-23T02:35:46.255852+00:00",
+  "business_spec": "Build a bookmark manager where users can save URLs with tags, search their bookmarks, and share curated collections publicly. Include browser extension support.",
+  "project_name": "BookmarkManager",
+  "max_cost_usd": 5.0,
+  "max_tickets": 3,
+  "timeout_minutes": 1,
+  "pipeline_id": null,
+  "workflow_id": null,
+  "final_status": "infra_failure",
+  "stages": {},
+  "approvals": [],
+  "errors": [
+    "API server failed to start within 30s"
+  ],
+  "tickets": [],
+  "events_count": 0,
+  "total_cost_usd": 0.0,
+  "duration_seconds": 0.0
+}

@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/*
+ * Forge dark-mode-first palette
+ * Built on slate/zinc with accent highlights.
+ */
+
+@theme {
+  --color-surface: var(--color-slate-900);
+  --color-surface-raised: var(--color-slate-800);
+  --color-surface-overlay: var(--color-slate-700);
+  --color-border: var(--color-slate-700);
+  --color-border-subtle: var(--color-slate-800);
+  --color-text-primary: var(--color-slate-100);
+  --color-text-secondary: var(--color-slate-400);
+  --color-text-muted: var(--color-slate-500);
+  --color-accent: var(--color-cyan-500);
+  --color-accent-dim: var(--color-cyan-800);
+  --color-success: var(--color-emerald-500);
+  --color-warning: var(--color-amber-500);
+  --color-danger: var(--color-red-500);
+}
+
+body {
+  font-family:
+    "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

@@ -1,0 +1,243 @@
+# Forge — full multiplayer stack
+# Usage:
+#   docker compose up -d                        # core services
+#   docker compose --profile gpu up -d          # + local LLM (NVIDIA GPU required)
+#   docker compose --profile observability up -d # + Langfuse tracing
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: forge-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_dev_password}
+      POSTGRES_DB: temporal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - forge-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: forge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - forge-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    container_name: forge-temporal
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-forge}
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:-forge_dev_password}
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    networks:
+      - forge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/dynamicconfig:/etc/temporal/config/dynamicconfig
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    container_name: forge-temporal-ui
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8088:8080"
+    networks:
+      - forge-network
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Application services
+  # ---------------------------------------------------------------------------
+
+  forge-auth:
+    build: ./auth
+    container_name: forge-auth
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-forge}:${POSTGRES_PASSWORD:-forge_dev_password}@postgres:5432/forge_app
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-forge-dev-secret-change-in-production}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3100}
+    ports:
+      - "3100:3100"
+    networks:
+      - forge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3100/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  forge-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: forge-api
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-forge}:${POSTGRES_PASSWORD:-forge_dev_password}@postgres:5432/forge_app
+      - REDIS_URL=redis://redis:6379/0
+      - TEMPORAL_ADDRESS=temporal:7233
+      - AUTH_SERVICE_URL=http://forge-auth:3100
+      - FORGE_ENCRYPTION_KEY=${FORGE_ENCRYPTION_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "8000:8000"
+    networks:
+      - forge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      forge-auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  forge-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: forge-worker
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-forge}:${POSTGRES_PASSWORD:-forge_dev_password}@postgres:5432/forge_app
+      - REDIS_URL=redis://redis:6379/0
+      - TEMPORAL_ADDRESS=temporal:7233
+      - FORGE_ENCRYPTION_KEY=${FORGE_ENCRYPTION_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - forge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
+
+  forge-dashboard:
+    build: ./dashboard
+    container_name: forge-dashboard
+    ports:
+      - "3000:80"
+    networks:
+      - forge-network
+    depends_on:
+      forge-api:
+        condition: service_healthy
+      forge-auth:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Optional: Local LLM (use `docker compose --profile gpu up`)
+  # ---------------------------------------------------------------------------
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: forge-ollama
+    profiles: ["gpu"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - forge-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Optional: Observability (use `docker compose --profile observability up`)
+  # ---------------------------------------------------------------------------
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: forge-langfuse
+    profiles: ["observability"]
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-forge}:${POSTGRES_PASSWORD:-forge_dev_password}@postgres:5432/langfuse
+      - NEXTAUTH_URL=${LANGFUSE_URL:-http://localhost:3001}
+      - NEXTAUTH_SECRET=${LANGFUSE_SECRET:-forge-langfuse-dev-secret}
+      - SALT=${LANGFUSE_SALT:-forge-langfuse-dev-salt}
+    ports:
+      - "3001:3000"
+    networks:
+      - forge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+
+networks:
+  forge-network:
+    driver: bridge

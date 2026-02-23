@@ -1,0 +1,25 @@
+{
+  "name": "forge-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch server.ts",
+    "start": "tsx server.ts",
+    "seed": "tsx seed.ts",
+    "generate": "npx @better-auth/cli generate --config ./server.ts",
+    "migrate": "npx @better-auth/cli migrate --config ./server.ts"
+  },
+  "dependencies": {
+    "better-auth": "^1.2.0",
+    "pg": "^8.13.0",
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0"
+  }
+}

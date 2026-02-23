@@ -1,0 +1,74 @@
+# =============================================================================
+# Forge GitHub Identities — Example Configuration
+# =============================================================================
+#
+# Copy this file to ~/.forge/identities.yaml and edit to match your accounts.
+# Or run the interactive setup wizard:
+#
+#   bash scripts/setup_github.sh
+#
+# Each identity maps a GitHub account + SSH key pair so Forge can clone, push,
+# and create PRs using the correct credentials.  Forge automatically resolves
+# which identity to use based on the repo URL, or you can specify one
+# explicitly with --identity <name>.
+#
+# Token env vars (set in your shell profile or .env):
+#
+#   GITHUB_TOKEN_PERSONAL=ghp_xxxx      ← for the "personal" identity
+#   GITHUB_TOKEN_WORK=ghp_xxxx          ← for the "work" identity
+#   GITHUB_TOKEN_CLIENT=ghp_xxxx        ← for the "client" identity
+#   GITHUB_TOKEN=ghp_xxxx               ← fallback for any identity
+#
+# SSH config (~/.ssh/config) must have a Host block for each ssh_host_alias.
+# The setup wizard writes these automatically, or see docs/github-setup.md.
+#
+# =============================================================================
+
+identities:
+
+  # ---------------------------------------------------------------------------
+  # Personal account
+  # ---------------------------------------------------------------------------
+  # Used for your own repos (github.com/your-username/...).
+  # Set as default so it's the fallback when no org/username matches.
+
+  - name: "personal"
+    github_username: "your-github-handle"
+    email: "you@personal-email.com"
+    ssh_key_path: "~/.ssh/id_ed25519_personal"
+    ssh_host_alias: "github-personal"
+    default: true
+
+  # ---------------------------------------------------------------------------
+  # Work / corporate account
+  # ---------------------------------------------------------------------------
+  # Used for repos under your company's GitHub org.
+  # The github_org field triggers automatic identity resolution:
+  #   git@github.com:YourCompany/any-repo.git → uses this identity
+  #
+  # extra_orgs covers subsidiary orgs that share the same SSH key and token.
+
+  - name: "work"
+    github_username: "your-work-handle"
+    email: "you@company.com"
+    ssh_key_path: "~/.ssh/id_ed25519_work"
+    ssh_host_alias: "github-work"
+    github_org: "YourCompany"
+    extra_orgs:
+      - "YourCompany-Internal"
+      - "YourCompany-OSS"
+
+  # ---------------------------------------------------------------------------
+  # Contract client account
+  # ---------------------------------------------------------------------------
+  # Used for a specific client engagement.  The client adds your SSH public
+  # key to their org.  Use a separate token scoped only to their repos.
+  #
+  # Token: GITHUB_TOKEN_CLIENT=ghp_xxxx (fine-grained, scoped to client repos)
+
+  # - name: "client"
+  #   github_username: "your-github-handle"
+  #   email: "you@client-project.com"
+  #   ssh_key_path: "~/.ssh/id_ed25519_client"
+  #   ssh_host_alias: "github-client"
+  #   github_org: "ClientOrg"

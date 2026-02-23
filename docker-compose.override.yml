@@ -1,0 +1,5 @@
+# Development overrides — automatically merged by docker compose
+services:
+  forge-dashboard:
+    ports:
+      - "3002:80"
