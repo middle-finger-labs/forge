@@ -5,12 +5,10 @@ import {
   DollarSign,
   Lightbulb,
   Loader2,
-  Plus,
   RefreshCw,
   Send,
   Trash2,
   Users,
-  X,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {

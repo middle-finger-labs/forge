@@ -219,9 +219,10 @@ class RepoConnector:
         branch = f"forge/{pipeline_id}"
 
         # Create branch from current HEAD (which has all merged work).
-        # If the branch already exists (e.g. from a previous failed run),
-        # delete it first and recreate from current HEAD.
+        # If the branch already exists (e.g. from a previous failed run or
+        # still checked out in a coding worktree), clean up first.
         if await self._branch_exists(repo_path, branch):
+            await self._detach_worktrees_for_branch(repo_path, branch)
             await self._run_git("branch", "-D", branch, cwd=repo_path)
         await self._run_git(
             "checkout", "-b", branch, cwd=repo_path,
@@ -472,6 +473,37 @@ class RepoConnector:
             return True
         except GitOperationError:
             return False
+
+    async def _detach_worktrees_for_branch(
+        self, repo_path: str, branch: str,
+    ) -> None:
+        """Remove any worktrees that have *branch* checked out so it can be
+        deleted.  Prunes stale worktree bookkeeping first."""
+        await self._run_git("worktree", "prune", cwd=repo_path)
+        try:
+            out = await self._run_git(
+                "worktree", "list", "--porcelain", cwd=repo_path,
+            )
+        except GitOperationError:
+            return
+
+        # Parse porcelain output: blocks separated by blank lines.
+        # Each block has "worktree <path>" and "branch refs/heads/<name>".
+        current_path: str | None = None
+        for line in out.splitlines():
+            if line.startswith("worktree "):
+                current_path = line[len("worktree "):]
+            elif line.startswith("branch refs/heads/"):
+                wt_branch = line[len("branch refs/heads/"):]
+                if wt_branch == branch and current_path:
+                    try:
+                        await self._run_git(
+                            "worktree", "remove", "--force", current_path,
+                            cwd=repo_path,
+                        )
+                    except GitOperationError:
+                        pass
+                current_path = None
 
     async def _create_ticket_branch(
         self,
