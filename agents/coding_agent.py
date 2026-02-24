@@ -251,12 +251,24 @@ async def _run_claude_code(
     # Parse the JSON output from claude
     result_text: str = ""
     cost_usd = 0.0
+    parsed = {}
     try:
         parsed = json.loads(stdout)
         result_text = parsed.get("result", "") if isinstance(parsed, dict) else ""
-        cost_usd = float(parsed.get("cost_usd", 0.0)) if isinstance(parsed, dict) else 0.0
+        cost_usd = float(parsed.get("total_cost_usd", 0.0)) if isinstance(parsed, dict) else 0.0
     except (json.JSONDecodeError, ValueError):
         result_text = stdout
+
+    # Log token usage for observability
+    usage = parsed.get("usage", {}) if isinstance(parsed, dict) else {}
+    if usage:
+        agent_log.info("claude_code_usage",
+            ticket_key=ticket.get("ticket_key"),
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            cost_usd=cost_usd,
+            num_turns=parsed.get("num_turns", 0),
+        )
 
     # Detect files changed on disk
     created, modified = _detect_changed_files(worktree_path, before)
