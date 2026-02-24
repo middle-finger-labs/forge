@@ -13,7 +13,7 @@ server {
     # Proxy auth calls to Better Auth service (must come before /api/)
     location /api/auth/ {
         set $auth_upstream http://${API_AUTH_HOST};
-        proxy_pass $auth_upstream/api/auth/$is_args$args;
+        proxy_pass $auth_upstream$request_uri;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
