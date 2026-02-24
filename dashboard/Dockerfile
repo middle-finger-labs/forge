@@ -20,7 +20,8 @@ FROM nginx:1.27-alpine
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy the template and startup script
+# Remove default nginx config and copy our template + startup script
+RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
