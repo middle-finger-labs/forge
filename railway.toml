@@ -1,9 +1,23 @@
 # Railway deployment configuration
-# Each service overrides these defaults in the Railway UI:
-#   forge-api:       Dockerfile.api,       PORT=8000
-#   forge-worker:    Dockerfile.worker     (no port — background service)
-#   forge-auth:      auth/Dockerfile,      PORT=3100
-#   forge-dashboard: dashboard/Dockerfile, PORT=80
+#
+# Each Railway service must set these in the UI (Settings → Build):
+#
+#   forge-api:
+#     Dockerfile Path: Dockerfile.api
+#     (root directory: /)
+#
+#   forge-worker:
+#     Dockerfile Path: Dockerfile.worker
+#     (root directory: /)
+#
+#   forge-auth:
+#     Dockerfile Path: Dockerfile       (lives inside auth/)
+#     Root Directory:   /auth            ← REQUIRED so COPY finds package.json
+#
+#   forge-dashboard:
+#     Dockerfile Path: Dockerfile       (lives inside dashboard/)
+#     Root Directory:   /dashboard       ← REQUIRED so COPY finds package.json
+#
 
 [build]
 builder = "DOCKERFILE"
