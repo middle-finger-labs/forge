@@ -2,8 +2,6 @@
 -- Add memory sharing mode to org_settings and user_id tracking to memory_store
 -- for private memory mode (where each user has their own memory context within an org).
 
-\c forge_app
-
 -- Memory sharing mode: "shared" (default) or "private"
 ALTER TABLE org_settings
     ADD COLUMN IF NOT EXISTS memory_sharing_mode TEXT DEFAULT 'shared';

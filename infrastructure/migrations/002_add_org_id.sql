@@ -3,8 +3,6 @@
 -- org_id references the Better Auth organization that owns the record.
 -- NULL org_id means the record was created before multi-tenancy (legacy).
 
-\c forge_app
-
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS org_id TEXT;
 ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS org_id TEXT;
 ALTER TABLE ticket_executions ADD COLUMN IF NOT EXISTS org_id TEXT;

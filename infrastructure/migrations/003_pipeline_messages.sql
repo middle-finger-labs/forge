@@ -1,8 +1,6 @@
 -- 003_pipeline_messages.sql
 -- Persistent chat messages for multiplayer pipeline collaboration.
 
-\c forge_app
-
 CREATE TABLE IF NOT EXISTS pipeline_messages (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pipeline_id  TEXT NOT NULL,

@@ -1,8 +1,6 @@
 -- 004_org_secrets.sql
 -- Per-org secrets, settings, and GitHub identities for multi-tenant configuration.
 
-\c forge_app
-
 -- Encrypted secrets (API keys, tokens)
 CREATE TABLE IF NOT EXISTS org_secrets (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
