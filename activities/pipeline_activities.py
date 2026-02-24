@@ -1602,7 +1602,11 @@ async def extract_pipeline_lessons(input: dict) -> list[str]:
         return lessons
 
     except Exception as exc:
-        lesson_log.warning("lesson extraction failed", error=str(exc))
+        lesson_log.error(
+            "lesson extraction failed — memories NOT persisted",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         return []
 
 
@@ -1674,7 +1678,11 @@ async def store_agent_memory(input: dict) -> bool:
         return True
 
     except Exception as exc:
-        mem_log.warning("memory storage failed", error=str(exc))
+        mem_log.error(
+            "memory storage failed — lesson NOT persisted",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         return False
 
 
