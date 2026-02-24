@@ -20,22 +20,16 @@ FROM nginx:1.27-alpine
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy the template — envsubst renders it at startup
+# Copy the template and startup script
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
 # Runtime env vars (defaults match Docker Compose service names;
 # override in Railway service settings for private networking)
-# PORT is set by Railway dynamically; falls back to 80 for Docker Compose
 ENV API_BACKEND_HOST=forge-api:8000
 ENV API_AUTH_HOST=forge-auth:3100
 
 EXPOSE 80
 
-# Use $PORT if set (Railway), otherwise default to 80 (Docker Compose).
-# Then render the nginx template with envsubst.
-CMD ["/bin/sh", "-c", \
-  "export NGINX_PORT=${PORT:-80} \
-   && envsubst '${NGINX_PORT} ${API_BACKEND_HOST} ${API_AUTH_HOST}' \
-     < /etc/nginx/templates/default.conf.template \
-     > /etc/nginx/conf.d/default.conf \
-   && nginx -g 'daemon off;'"]
+CMD ["/start.sh"]
