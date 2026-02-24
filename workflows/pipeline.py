@@ -139,6 +139,16 @@ class ForgePipeline:
     abort_reason: str = ""
     repo_path: str = ""
     _model_downgraded: bool = False
+    _resume_from: PipelineStage | None = None
+
+    _STAGE_ORDER: list[PipelineStage] = [
+        PipelineStage.BUSINESS_ANALYSIS,
+        PipelineStage.RESEARCH,
+        PipelineStage.ARCHITECTURE,
+        PipelineStage.TASK_DECOMPOSITION,
+        PipelineStage.CODING,
+        PipelineStage.MERGE,
+    ]
 
     # -----------------------------------------------------------------------
     # Signals
@@ -185,6 +195,8 @@ class ForgePipeline:
             "code_artifacts": list(self.code_artifacts),
             "qa_reviews": list(self.qa_reviews),
             "model_downgraded": self._model_downgraded,
+            "retry_request": self._retry_request,
+            "resume_from": self._resume_from,
         }
 
     @workflow.query
@@ -247,154 +259,202 @@ class ForgePipeline:
 
         await self._emit_event("pipeline.started", stage=PipelineStage.INTAKE)
 
-        try:
-            # Stage 1 — Business Analysis
-            result = await self._run_stage(
-                PipelineStage.BUSINESS_ANALYSIS,
-                ACT_BUSINESS_ANALYSIS,
-                {
-                    "pipeline_id": self.pipeline_id,
-                    "org_id": self.org_id,
-                    "business_spec": input.business_spec,
-                    "project_name": input.project_name,
-                },
-            )
-            self.product_spec = result.artifact
+        while True:
+            # Reset retry state at the top of each iteration so it only
+            # applies once per retry signal.
+            self._resume_from = None
+            self._retry_request = None
 
-            # Human approval gate (BA)
-            await self._wait_for_approval(PipelineStage.BUSINESS_ANALYSIS)
+            try:
+                # Stage 1 — Business Analysis
+                if not self._should_skip(PipelineStage.BUSINESS_ANALYSIS):
+                    result = await self._run_stage(
+                        PipelineStage.BUSINESS_ANALYSIS,
+                        ACT_BUSINESS_ANALYSIS,
+                        {
+                            "pipeline_id": self.pipeline_id,
+                            "org_id": self.org_id,
+                            "business_spec": input.business_spec,
+                            "project_name": input.project_name,
+                        },
+                    )
+                    self.product_spec = result.artifact
 
-            # Stage 2 — Research
-            result = await self._run_stage(
-                PipelineStage.RESEARCH,
-                ACT_RESEARCH,
-                {"pipeline_id": self.pipeline_id, "org_id": self.org_id, "product_spec": self.product_spec},
-            )
-            self.enriched_spec = result.artifact
+                    # Human approval gate (BA)
+                    await self._wait_for_approval(PipelineStage.BUSINESS_ANALYSIS)
 
-            # Stage 3 — Architecture
-            result = await self._run_stage(
-                PipelineStage.ARCHITECTURE,
-                ACT_ARCHITECTURE,
-                {"pipeline_id": self.pipeline_id, "org_id": self.org_id, "enriched_spec": self.enriched_spec},
-            )
-            self.tech_spec = result.artifact
+                # Stage 2 — Research
+                if not self._should_skip(PipelineStage.RESEARCH):
+                    result = await self._run_stage(
+                        PipelineStage.RESEARCH,
+                        ACT_RESEARCH,
+                        {"pipeline_id": self.pipeline_id, "org_id": self.org_id, "product_spec": self.product_spec},
+                    )
+                    self.enriched_spec = result.artifact
 
-            # Human approval gate (Architecture)
-            await self._wait_for_approval(PipelineStage.ARCHITECTURE)
+                # Stage 3 — Architecture
+                if not self._should_skip(PipelineStage.ARCHITECTURE):
+                    result = await self._run_stage(
+                        PipelineStage.ARCHITECTURE,
+                        ACT_ARCHITECTURE,
+                        {"pipeline_id": self.pipeline_id, "org_id": self.org_id, "enriched_spec": self.enriched_spec},
+                    )
+                    self.tech_spec = result.artifact
 
-            # Stage 4 — Task Decomposition
-            result = await self._run_stage(
-                PipelineStage.TASK_DECOMPOSITION,
-                ACT_TASK_DECOMPOSITION,
-                {
-                    "pipeline_id": self.pipeline_id,
-                    "org_id": self.org_id,
-                    "tech_spec": self.tech_spec,
-                    "enriched_spec": self.enriched_spec,
-                },
-            )
-            self.prd_board = result.artifact
+                    # Human approval gate (Architecture)
+                    await self._wait_for_approval(PipelineStage.ARCHITECTURE)
 
-            # Stage 4b — Project Scaffold (or clone remote repo)
-            if input.repo_url:
-                scaffold_result = await self._run_stage(
-                    PipelineStage.TASK_DECOMPOSITION,
-                    ACT_CLONE_REMOTE_REPO,
-                    {
-                        "pipeline_id": self.pipeline_id,
-                        "org_id": self.org_id,
-                        "repo_url": input.repo_url,
-                        "repo_owner": input.repo_owner or "",
-                        "repo_name": input.repo_name or "",
-                        "git_identity_name": input.git_identity_name,
-                        "tech_spec": self.tech_spec,
-                        "target_branch": input.target_branch,
-                    },
-                )
-            else:
-                scaffold_result = await self._run_stage(
-                    PipelineStage.TASK_DECOMPOSITION,
-                    ACT_SCAFFOLD_PROJECT,
-                    {
-                        "pipeline_id": self.pipeline_id,
-                        "org_id": self.org_id,
-                        "tech_spec": self.tech_spec,
-                        "project_name": input.project_name,
-                    },
-                )
-            self.repo_path = (scaffold_result.artifact or {}).get("repo_path", "")
-            await self._emit_event(
-                "scaffold.completed",
-                stage=PipelineStage.TASK_DECOMPOSITION,
-                payload={"repo_path": self.repo_path},
-            )
+                # Stage 4 — Task Decomposition
+                if not self._should_skip(PipelineStage.TASK_DECOMPOSITION):
+                    result = await self._run_stage(
+                        PipelineStage.TASK_DECOMPOSITION,
+                        ACT_TASK_DECOMPOSITION,
+                        {
+                            "pipeline_id": self.pipeline_id,
+                            "org_id": self.org_id,
+                            "tech_spec": self.tech_spec,
+                            "enriched_spec": self.enriched_spec,
+                        },
+                    )
+                    self.prd_board = result.artifact
 
-            # Stage 4c — Validate & optimise execution order
-            await self._validate_execution_order()
+                    # Stage 4b — Project Scaffold (or clone remote repo)
+                    if input.repo_url:
+                        scaffold_result = await self._run_stage(
+                            PipelineStage.TASK_DECOMPOSITION,
+                            ACT_CLONE_REMOTE_REPO,
+                            {
+                                "pipeline_id": self.pipeline_id,
+                                "org_id": self.org_id,
+                                "repo_url": input.repo_url,
+                                "repo_owner": input.repo_owner or "",
+                                "repo_name": input.repo_name or "",
+                                "git_identity_name": input.git_identity_name,
+                                "tech_spec": self.tech_spec,
+                                "target_branch": input.target_branch,
+                            },
+                        )
+                    else:
+                        scaffold_result = await self._run_stage(
+                            PipelineStage.TASK_DECOMPOSITION,
+                            ACT_SCAFFOLD_PROJECT,
+                            {
+                                "pipeline_id": self.pipeline_id,
+                                "org_id": self.org_id,
+                                "tech_spec": self.tech_spec,
+                                "project_name": input.project_name,
+                            },
+                        )
+                    self.repo_path = (scaffold_result.artifact or {}).get("repo_path", "")
+                    await self._emit_event(
+                        "scaffold.completed",
+                        stage=PipelineStage.TASK_DECOMPOSITION,
+                        payload={"repo_path": self.repo_path},
+                    )
 
-            # Stage 5+6+7 — Coding groups (coding + QA + merge per group)
-            await self._run_coding_swarm()
+                    # Stage 4c — Validate & optimise execution order
+                    await self._validate_execution_order()
 
-            # Integration check — full test suite on merged main
-            await self._run_integration_check()
+                # Stage 5+6+7 — Coding groups (coding + QA + merge per group)
+                if not self._should_skip(PipelineStage.CODING):
+                    await self._run_coding_swarm()
 
-            # Push to GitHub if this is a remote repo pipeline
-            if input.repo_url and self.repo_path:
+                    # Integration check — full test suite on merged main
+                    await self._run_integration_check()
+
+                # Push to GitHub if this is a remote repo pipeline
+                if not self._should_skip(PipelineStage.MERGE):
+                    if input.repo_url and self.repo_path:
+                        await self._emit_event(
+                            "github.push_started",
+                            stage=PipelineStage.MERGE,
+                            payload={"strategy": input.pr_strategy},
+                        )
+                        push_result = await self._run_stage(
+                            PipelineStage.MERGE,
+                            ACT_PUSH_PIPELINE_RESULTS,
+                            {
+                                "pipeline_id": self.pipeline_id,
+                                "org_id": self.org_id,
+                                "repo_path": self.repo_path,
+                                "repo_owner": input.repo_owner or "",
+                                "repo_name": input.repo_name or "",
+                                "git_identity_name": input.git_identity_name,
+                                "repo_url": input.repo_url,
+                                "pr_strategy": input.pr_strategy,
+                                "code_artifacts": self.code_artifacts,
+                                "issue_number": input.issue_number,
+                                "project_name": input.project_name,
+                                "total_cost_usd": self.total_cost_usd,
+                                "target_branch": input.target_branch,
+                            },
+                        )
+                        await self._emit_event(
+                            "github.push_completed",
+                            stage=PipelineStage.MERGE,
+                            payload=push_result.artifact or {},
+                        )
+
+                self.current_stage = PipelineStage.COMPLETE
+                await self._emit_event("pipeline.completed", stage=PipelineStage.COMPLETE)
+
+                # Extract lessons from the completed pipeline for future runs
+                await self._extract_lessons()
+
+                # Persist terminal status
+                await self._finalize_state("completed")
+
+                return self.get_state()
+
+            except Exception as exc:
+                self.current_stage = PipelineStage.FAILED
                 await self._emit_event(
-                    "github.push_started",
-                    stage=PipelineStage.MERGE,
-                    payload={"strategy": input.pr_strategy},
+                    "pipeline.failed",
+                    stage=PipelineStage.FAILED,
+                    payload={"error": str(exc)},
                 )
-                push_result = await self._run_stage(
-                    PipelineStage.MERGE,
-                    ACT_PUSH_PIPELINE_RESULTS,
-                    {
-                        "pipeline_id": self.pipeline_id,
-                        "org_id": self.org_id,
-                        "repo_path": self.repo_path,
-                        "repo_owner": input.repo_owner or "",
-                        "repo_name": input.repo_name or "",
-                        "git_identity_name": input.git_identity_name,
-                        "repo_url": input.repo_url,
-                        "pr_strategy": input.pr_strategy,
-                        "code_artifacts": self.code_artifacts,
-                        "issue_number": input.issue_number,
-                        "project_name": input.project_name,
-                        "total_cost_usd": self.total_cost_usd,
-                        "target_branch": input.target_branch,
+
+                # If already aborted, raise immediately (preserves current behaviour)
+                if self.aborted:
+                    await self._finalize_state("aborted")
+                    raise
+
+                # Persist failed status
+                await self._finalize_state("failed")
+
+                # Hold the workflow alive for up to 72 hours waiting for
+                # a retry signal or an abort signal.
+                got_signal = await workflow.wait_condition(
+                    lambda: self._retry_request is not None or self.aborted,
+                    timeout=timedelta(hours=72),
+                )
+
+                if not got_signal or self.aborted:
+                    # Timeout expired or abort signal received — terminate
+                    raise
+
+                # Retry signal received — resume from the requested stage
+                assert self._retry_request is not None
+                self._resume_from = self._retry_request.stage
+                self.current_stage = self._resume_from
+                self.aborted = False
+                self.abort_reason = ""
+
+                await self._emit_event(
+                    "pipeline.retrying",
+                    stage=self._resume_from,
+                    payload={
+                        "resume_from": str(self._resume_from),
+                        "requested_by": self._retry_request.requested_by,
                     },
                 )
-                await self._emit_event(
-                    "github.push_completed",
-                    stage=PipelineStage.MERGE,
-                    payload=push_result.artifact or {},
-                )
 
-            self.current_stage = PipelineStage.COMPLETE
-            await self._emit_event("pipeline.completed", stage=PipelineStage.COMPLETE)
+                # Update persisted status back to running
+                await self._finalize_state("running")
 
-            # Extract lessons from the completed pipeline for future runs
-            await self._extract_lessons()
-
-            # Persist terminal status
-            await self._finalize_state("completed")
-
-            return self.get_state()
-
-        except Exception as exc:
-            self.current_stage = PipelineStage.FAILED
-            await self._emit_event(
-                "pipeline.failed",
-                stage=PipelineStage.FAILED,
-                payload={"error": str(exc)},
-            )
-
-            # Persist terminal status
-            status = "aborted" if self.aborted else "failed"
-            await self._finalize_state(status)
-
-            raise
+                # Loop back to the top — _should_skip() will skip
+                # everything before _resume_from
+                continue
 
     # -----------------------------------------------------------------------
     # Stage runner
@@ -1323,6 +1383,15 @@ class ForgePipeline:
 
             return PIPELINE_CONFIG.auto_approve_minor_only
         except Exception:
+            return False
+
+    def _should_skip(self, stage: PipelineStage) -> bool:
+        """Return True if *stage* should be skipped during a retry resume."""
+        if self._resume_from is None:
+            return False
+        try:
+            return self._STAGE_ORDER.index(stage) < self._STAGE_ORDER.index(self._resume_from)
+        except ValueError:
             return False
 
     def _mark_ticket_skipped(self, ticket_key: str, decision: dict) -> None:

@@ -11,6 +11,7 @@ Usage — pipeline commands:
     python run_pipeline.py reject  <pipeline_id> --stage business_analysis --notes "Missing auth"
     python run_pipeline.py status  <pipeline_id>
     python run_pipeline.py abort   <pipeline_id> --reason "Wrong spec"
+    python run_pipeline.py retry   <pipeline_id> --stage coding
 
 Usage — identity management:
     python run_pipeline.py identities list
@@ -40,6 +41,7 @@ from workflows.types import (
     HumanApproval,
     PipelineInput,
     PipelineStage,
+    RetryStageRequest,
 )
 
 TEMPORAL_ADDRESS = os.environ.get("TEMPORAL_ADDRESS", "localhost:7233")
@@ -235,6 +237,19 @@ async def cmd_abort(args: argparse.Namespace) -> None:
     await handle.signal(ForgePipeline.abort, reason)
     print(f"Abort signal sent to pipeline {args.pipeline_id}")
     print(f"  Reason: {reason}")
+
+
+async def cmd_retry(args: argparse.Namespace) -> None:
+    """Send a retry signal to resume a failed pipeline from a specific stage."""
+
+    client = await Client.connect(TEMPORAL_ADDRESS, namespace=TEMPORAL_NAMESPACE)
+    handle = client.get_workflow_handle(workflow_id(args.pipeline_id))
+
+    await handle.signal(
+        ForgePipeline.retry_stage,
+        RetryStageRequest(stage=PipelineStage(args.stage), requested_by="cli-user"),
+    )
+    print(f"Retry signal sent for stage '{args.stage}' on pipeline {args.pipeline_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +585,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_abort.add_argument("pipeline_id", type=str)
     p_abort.add_argument("--reason", type=str, default=None, help="Abort reason")
 
+    # -- retry --
+    p_retry = sub.add_parser("retry", help="Retry a failed pipeline from a specific stage")
+    p_retry.add_argument("pipeline_id", type=str)
+    p_retry.add_argument(
+        "--stage", required=True,
+        choices=[s.value for s in PipelineStage
+                 if s not in (PipelineStage.INTAKE, PipelineStage.COMPLETE, PipelineStage.FAILED)],
+    )
+
     # -- identities --
     p_ident = sub.add_parser("identities", help="Manage Git identities")
     ident_sub = p_ident.add_subparsers(dest="identities_command", required=True)
@@ -619,6 +643,7 @@ def main() -> None:
         "reject": cmd_reject,
         "status": cmd_status,
         "abort": cmd_abort,
+        "retry": cmd_retry,
         "repos": lambda a: cmd_repos_test(a),
     }
 
