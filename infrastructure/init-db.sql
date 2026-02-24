@@ -1,8 +1,13 @@
 -- Forge base schema (Railway-compatible: no \c, no CREATE DATABASE)
 -- The DATABASE_URL already points at the correct database.
 
--- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
+-- Try to enable pgvector; skip gracefully if not available.
+-- Embedding columns will be added by a separate migration when pgvector is ready.
+DO $$ BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pgvector not available — skipping (embeddings disabled)';
+END $$;
 
 -- Migrations tracking table
 CREATE TABLE IF NOT EXISTS _migrations (
@@ -54,6 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_ticket_executions_pipeline ON ticket_executions (
 CREATE INDEX IF NOT EXISTS idx_ticket_executions_status ON ticket_executions (status);
 
 -- Agent events: append-only log of all agent actions (time-series style)
+-- Note: embedding column added conditionally below (requires pgvector)
 CREATE TABLE IF NOT EXISTS agent_events (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pipeline_id TEXT NOT NULL,
@@ -62,8 +68,7 @@ CREATE TABLE IF NOT EXISTS agent_events (
     agent_role  TEXT,
     agent_id    TEXT,
     payload     JSONB NOT NULL DEFAULT '{}',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    embedding   vector(1536)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_events_time ON agent_events (created_at DESC);
@@ -86,6 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_cto_interventions_status ON cto_interventions (st
 CREATE INDEX IF NOT EXISTS idx_cto_interventions_pipeline ON cto_interventions (pipeline_id);
 
 -- Semantic memory store: agent lessons and decisions (fallback for Mem0)
+-- Note: embedding column added conditionally below (requires pgvector)
 CREATE TABLE IF NOT EXISTS memory_store (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_role  TEXT,
@@ -93,12 +99,19 @@ CREATE TABLE IF NOT EXISTS memory_store (
     content     TEXT NOT NULL,
     memory_type TEXT NOT NULL DEFAULT 'lesson',
     metadata    JSONB NOT NULL DEFAULT '{}',
-    embedding   vector(384),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_store_role ON memory_store (agent_role);
 CREATE INDEX IF NOT EXISTS idx_memory_store_pipeline ON memory_store (pipeline_id);
 CREATE INDEX IF NOT EXISTS idx_memory_store_type ON memory_store (memory_type);
-CREATE INDEX IF NOT EXISTS idx_memory_store_embedding ON memory_store
-    USING hnsw (embedding vector_cosine_ops);
+
+-- Add vector columns and HNSW index only if pgvector is available
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+    ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS embedding vector(1536);
+    ALTER TABLE memory_store ADD COLUMN IF NOT EXISTS embedding vector(384);
+    CREATE INDEX IF NOT EXISTS idx_memory_store_embedding ON memory_store
+        USING hnsw (embedding vector_cosine_ops);
+  END IF;
+END $$;
