@@ -1,12 +1,19 @@
+resolver 127.0.0.11 8.8.8.8 valid=30s ipv6=off;
+
 server {
     listen ${NGINX_PORT};
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
 
+    # --- Reverse-proxy locations ---
+    # Using variables forces nginx to resolve the upstream at request time
+    # instead of at startup, so it won't crash if backends aren't up yet.
+
     # Proxy auth calls to Better Auth service (must come before /api/)
     location /api/auth/ {
-        proxy_pass http://${API_AUTH_HOST}/api/auth/;
+        set $auth_upstream http://${API_AUTH_HOST};
+        proxy_pass $auth_upstream/api/auth/$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -17,7 +24,8 @@ server {
 
     # Proxy API requests to the FastAPI backend
     location /api/ {
-        proxy_pass http://${API_BACKEND_HOST};
+        set $api_upstream http://${API_BACKEND_HOST};
+        proxy_pass $api_upstream$request_uri;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -27,7 +35,8 @@ server {
 
     # Proxy WebSocket connections
     location /ws/ {
-        proxy_pass http://${API_BACKEND_HOST};
+        set $ws_upstream http://${API_BACKEND_HOST};
+        proxy_pass $ws_upstream$request_uri;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
