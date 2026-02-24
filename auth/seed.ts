@@ -9,8 +9,7 @@
  *   tsx seed.ts
  */
 
-import { auth } from "./server.js";
-import { Pool } from "pg";
+import { auth, pool } from "./auth.js";
 
 const ORG_NAME = "Middle Finger Labs";
 const ORG_SLUG = "middle-finger-labs";
@@ -26,12 +25,6 @@ if (!adminEmail || !adminPassword) {
   );
   process.exit(1);
 }
-
-const pool = new Pool({
-  connectionString:
-    process.env.DATABASE_URL ??
-    "postgresql://forge:forge_dev_password@localhost:5432/forge_app",
-});
 
 async function seed() {
   console.log("--- forge-auth seed ---");
