@@ -223,7 +223,7 @@ async def _validate_session(token: str) -> ForgeUser:
         # and use the first one as a default.
         try:
             orgs_resp = await client.get(
-                f"{FORGE_AUTH_URL}/api/auth/organization/list-organizations",
+                f"{FORGE_AUTH_URL}/api/auth/organization/list",
                 headers=headers,
             )
             if orgs_resp.status_code == 200:
@@ -236,7 +236,11 @@ async def _validate_session(token: str) -> ForgeUser:
                     try:
                         await client.post(
                             f"{FORGE_AUTH_URL}/api/auth/organization/set-active",
-                            headers=headers,
+                            headers={
+                                **headers,
+                                "Content-Type": "application/json",
+                                "Origin": FORGE_AUTH_URL,
+                            },
                             json={"organizationId": org_id},
                         )
                     except httpx.RequestError:
