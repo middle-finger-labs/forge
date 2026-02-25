@@ -53,8 +53,9 @@ _DEV_USER = ForgeUser(
     role="owner",
 )
 
-# Cookie name used by Better Auth
+# Cookie name used by Better Auth (with __Secure- prefix when baseURL is HTTPS)
 _SESSION_COOKIE = "better-auth.session_token"
+_SESSION_COOKIE_SECURE = "__Secure-better-auth.session_token"
 
 # ---------------------------------------------------------------------------
 # Shared HTTP client (reused across requests)
@@ -131,8 +132,10 @@ async def _cache_user(token: str, user: ForgeUser) -> None:
 
 def _extract_token(request: Request) -> str | None:
     """Extract session token from cookie or Authorization header."""
-    # 1. Cookie (browser requests)
-    token = request.cookies.get(_SESSION_COOKIE)
+    # 1. Cookie (browser requests — try __Secure- prefixed first, then plain)
+    token = request.cookies.get(_SESSION_COOKIE_SECURE) or request.cookies.get(
+        _SESSION_COOKIE
+    )
     if token:
         return token
 
@@ -195,7 +198,7 @@ async def _validate_session(token: str) -> ForgeUser:
     role = "member"
 
     if org_id:
-        # Retrieve org details + membership
+        # Retrieve org details + membership for the active org
         try:
             org_resp = await client.get(
                 f"{FORGE_AUTH_URL}/api/auth/organization/get-full-organization",
@@ -204,13 +207,55 @@ async def _validate_session(token: str) -> ForgeUser:
             if org_resp.status_code == 200:
                 org_data = org_resp.json()
                 org_slug = org_data.get("slug", "")
-                # Find this user's role in the org members list
                 for member in org_data.get("members", []):
                     if member.get("userId") == user_id:
                         role = member.get("role", "member")
                         break
         except httpx.RequestError:
             log.warning("could not fetch org details, using defaults")
+    else:
+        # No active org on session — look up the user's org memberships
+        # and use the first one as a default.
+        try:
+            orgs_resp = await client.get(
+                f"{FORGE_AUTH_URL}/api/auth/organization/list-organizations",
+                headers=headers,
+            )
+            if orgs_resp.status_code == 200:
+                orgs = orgs_resp.json()
+                if isinstance(orgs, list) and len(orgs) > 0:
+                    first_org = orgs[0]
+                    org_id = first_org.get("id", "")
+                    org_slug = first_org.get("slug", "")
+                    # Try to set as active org so subsequent requests work
+                    try:
+                        await client.post(
+                            f"{FORGE_AUTH_URL}/api/auth/organization/set-active",
+                            headers=headers,
+                            json={"organizationId": org_id},
+                        )
+                    except httpx.RequestError:
+                        pass
+                    # Fetch full org to get role
+                    try:
+                        org_resp = await client.get(
+                            f"{FORGE_AUTH_URL}/api/auth/organization/get-full-organization",
+                            headers={
+                                **headers,
+                                "x-organization-id": org_id,
+                            },
+                        )
+                        if org_resp.status_code == 200:
+                            org_data = org_resp.json()
+                            org_slug = org_data.get("slug", org_slug)
+                            for member in org_data.get("members", []):
+                                if member.get("userId") == user_id:
+                                    role = member.get("role", "member")
+                                    break
+                    except httpx.RequestError:
+                        pass
+        except httpx.RequestError:
+            log.warning("could not list user organizations")
 
     if not org_id:
         raise HTTPException(
