@@ -160,11 +160,14 @@ async def _validate_session(token: str) -> ForgeUser:
     """
     client = _get_http_client()
 
-    # Forward the token both as cookie and bearer so Better Auth
-    # recognises it regardless of how it was originally issued.
+    # Forward the token as both cookie variants so Better Auth
+    # recognises it regardless of whether it expects the __Secure- prefix.
     headers = {
         "Authorization": f"Bearer {token}",
-        "Cookie": f"{_SESSION_COOKIE}={token}",
+        "Cookie": (
+            f"{_SESSION_COOKIE_SECURE}={token}; "
+            f"{_SESSION_COOKIE}={token}"
+        ),
     }
 
     try:
@@ -183,6 +186,8 @@ async def _validate_session(token: str) -> ForgeUser:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     data = resp.json()
+    if not data:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     # Better Auth returns { session: {...}, user: {...} }
     session = data.get("session") or {}
