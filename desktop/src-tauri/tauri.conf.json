@@ -68,22 +68,10 @@
     }
   },
   "plugins": {
-    "notification": {
-      "enabled": true
-    },
-    "window-state": {
-      "enabled": true
-    },
-    "global-shortcut": {
-      "enabled": true
-    },
-    "autostart": {
-      "enabled": true
-    },
     "deep-link": {
-      "mobile": {
-        "schemes": ["forge"]
-      },
+      "mobile": [
+        { "scheme": ["forge"], "host": "open.middlefingerlabs.com" }
+      ],
       "desktop": {
         "schemes": ["forge"]
       }
