@@ -72,6 +72,56 @@ jobs:
       - name: Build
         run: npm run build
 
+  desktop:
+    name: Desktop (TypeScript + Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            javascriptcoregtk-4.1-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Vite build
+        run: npx vite build
+
+      - name: Cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check
+
   typecheck:
     name: Type Check (Python)
     runs-on: ubuntu-latest

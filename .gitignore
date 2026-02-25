@@ -35,6 +35,13 @@ node_modules/
 dashboard/dist/
 auth/node_modules/
 
+# Rust / Tauri
+target/
+desktop/src-tauri/target/
+
+# Desktop build output
+desktop/dist/
+
 # Docker volumes
 postgres_data/
 redis_data/

@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+:root {
+  --forge-bg: #1a1d21;
+  --forge-sidebar: #19171d;
+  --forge-channel: #222529;
+  --forge-text: #d1d2d3;
+  --forge-text-muted: #ababad;
+  --forge-accent: #4a9eff;
+  --forge-border: #35373b;
+  --forge-hover: #27242c;
+  --forge-active: #1164a3;
+  --forge-success: #2bac76;
+  --forge-warning: #e8a820;
+  --forge-error: #e84040;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--forge-bg);
+  color: var(--forge-text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    Cantarell, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent text selection on drag areas */
+[data-tauri-drag-region] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/*
+ * App Shell — CSS Grid layout
+ *
+ *   sidebar | resize | toolbar (spans main + detail)
+ *   sidebar | resize | main    | detail
+ *   status  (spans full width)
+ *
+ *   Sidebar:  var(--sidebar-width), fixed
+ *   Resize:   4px drag handle
+ *   Main:     1fr (fills remaining)
+ *   Detail:   var(--detail-width), 0px when closed
+ */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 4px 1fr var(--detail-width);
+  grid-template-rows: 44px 1fr auto;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-shell__sidebar {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  overflow: hidden;
+}
+
+.app-shell__resize {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  cursor: col-resize;
+  background: var(--forge-border);
+  width: 4px;
+  transition: background 0.15s;
+}
+
+.app-shell__resize:hover,
+.app-shell__resize:active {
+  background: var(--forge-accent);
+}
+
+.app-shell__toolbar {
+  grid-column: 3 / -1;
+  grid-row: 1;
+  border-bottom: 1px solid var(--forge-border);
+  background: var(--forge-bg);
+  overflow: hidden;
+}
+
+.app-shell__main {
+  grid-column: 3;
+  grid-row: 2;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell__detail {
+  grid-column: 4;
+  grid-row: 2;
+  overflow: hidden;
+  width: 320px;
+}
+
+.app-shell__statusbar {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--forge-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--forge-text-muted);
+}
+
+/* Keyboard hint */
+kbd {
+  font-size: 0.7em;
+  line-height: 1;
+}
+
+/* Content editable placeholder */
+[contenteditable]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--forge-text-muted);
+  pointer-events: none;
+}
+
+/* Typing indicator dots animation */
+@keyframes typing-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* Animate-in utility for new message pill */
+@keyframes fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-in {
+  animation: fade-slide-up 0.2s ease-out;
+}

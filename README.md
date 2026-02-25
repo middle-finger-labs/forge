@@ -58,6 +58,7 @@ AI-powered software delivery pipeline orchestrated by [Temporal](https://tempora
 | Pub/sub | Redis | Real-time event streaming, working memory, batch event buffering |
 | API | FastAPI | REST endpoints, WebSocket streaming, admin tools |
 | Dashboard | React + Vite + Tailwind | Pipeline monitoring, approval gates, admin panel |
+| Desktop | Tauri v2 + React 19 | Native conversational UI — agent DMs, pipeline channels, tray |
 | Isolation | Git worktrees | Each coding agent works in an isolated worktree — no conflicts |
 
 ---
@@ -507,6 +508,7 @@ forge/
     rate_limiter.py       # Token-bucket rate limiting
   contracts/              # Shared Pydantic schemas
     schemas.py            # ProductSpec, TechSpec, PRDBoard, etc.
+  desktop/                # Tauri v2 native desktop app (see desktop/README.md)
   dashboard/              # React + Vite + Tailwind frontend
     src/pages/
       PipelineListPage.tsx
@@ -841,11 +843,79 @@ docker compose --profile observability up -d # + Langfuse tracing
 
 ---
 
+## Desktop App
+
+Forge Desktop is a native conversational interface where **AI agents are teammates you chat with** — not dashboards you stare at. Instead of monitoring pipeline stages on a web UI, you interact with agents via direct messages and pipeline channels, just like Slack.
+
+```
+┌──────────┬──────────────────────────────────┬──────────────────┐
+│          │  #auth-redesign                  │                  │
+│ Agents   │                                  │   DAG Minimap    │
+│ 🔍 idle  │  🏗️ Architect  10:32 AM          │   ┌──┐  ┌──┐    │
+│ 📐 working│  Here's the system design...     │   │BA│→│RS│    │
+│ 📋 idle  │                                  │   └──┘  └──┘    │
+│ 🔧 idle  │  📋 PM  10:34 AM                 │      ↓          │
+│          │  I've decomposed this into 4      │   ┌──┐  ┌──┐   │
+│ Channels │  tickets. Ready for approval:     │   │AR│→│PM│    │
+│ #auth    │  ┌─────────────────────┐          │   └──┘  └──┘   │
+│ #dash-v2 │  │ ✅ Approve  ❌ Reject │          │                │
+│          │  └─────────────────────┘          │                 │
+├──────────┴──────────────────────────────────┴──────────────────┤
+│ ● Connected to forge.example.com  ⚡ 1 pipeline running  $0.42│
+└───────────────────────────────────────────────────────────────-┘
+```
+
+### Key features
+
+- **Agent DMs** — Chat directly with any agent (BA, Researcher, Architect, PM, Engineer, QA, CTO). Each has personality, quick actions, and thinking indicators.
+- **Pipeline channels** — Real-time multi-agent conversations with DAG visualization, approval cards, and cost tracking.
+- **Quick Switcher** — `Cmd+K` fuzzy search across agents, conversations, and commands.
+- **Activity Feed** — Unified "All Unreads" view with filters for pipelines, DMs, and approvals.
+- **Native integration** — System tray with live status, native notifications for approvals, global `Cmd+Shift+F` hotkey, "Open in VS Code" button, close-to-tray, window state persistence.
+- **Theming** — Dark and light modes with dynamic CSS variable system.
+
+### Install
+
+Download the latest release for your platform from [GitHub Releases](../../releases):
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `Forge_x.x.x_aarch64.dmg` |
+| macOS (Intel) | `Forge_x.x.x_x86_64.dmg` |
+| Windows | `Forge_x.x.x_x64-setup.exe` |
+| Linux (Debian/Ubuntu) | `forge_x.x.x_amd64.deb` |
+| Linux (Other) | `forge_x.x.x_amd64.AppImage` |
+
+On first launch, enter your Forge server URL and log in with your credentials.
+
+### Development
+
+```bash
+cd desktop
+pnpm install
+pnpm tauri dev
+```
+
+See the [Desktop README](desktop/README.md) for full documentation on architecture, IPC, WebSocket management, and native feature wiring.
+
+### Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Native shell | Tauri v2 (Rust) |
+| Frontend | React 19 + TypeScript 5.9 |
+| Build | Vite 7 |
+| Styling | Tailwind CSS 4 |
+| State | Zustand 5 |
+
+---
+
 ## Roadmap
 
 - ~~**Multi-repository support**~~ — Clone, push, and create PRs across personal, corporate, and client repos with multi-account SSH identities
 - ~~**CI/CD integration**~~ — Auto-create GitHub PRs from pipeline results, webhook-triggered pipelines from GitHub issues, issue comment commands
 - ~~**Team collaboration**~~ — Multi-user dashboards, org-scoped data, role-based access, shared approvals, real-time presence, org-scoped memory
+- ~~**Desktop app**~~ — Native Tauri v2 desktop client with conversational agent UI, system tray, notifications, and cross-platform builds
 - **Incremental builds** — Modify existing codebases instead of generating from scratch (partial: `--repo` clones an existing repo as the starting point)
 - **Plugin agents** — User-defined agent roles with custom tools and prompts
 - **Cost optimization** — Adaptive model selection based on task complexity scoring
