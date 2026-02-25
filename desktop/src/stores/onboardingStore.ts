@@ -119,9 +119,15 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
         completedAt: data.completed_at,
         loaded: true,
       });
-    } catch {
-      // If onboarding table doesn't exist yet, treat as completed
-      set({ completed: true, loaded: true });
+    } catch (err) {
+      // If server returned 404, onboarding isn't set up — treat as completed.
+      // For other errors (network, 500), leave unloaded so it retries next time.
+      const is404 = err instanceof Error && err.message.includes("404");
+      if (is404) {
+        set({ completed: true, loaded: true });
+      } else {
+        set({ loaded: true });
+      }
     } finally {
       set({ loading: false });
     }

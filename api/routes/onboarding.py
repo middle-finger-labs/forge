@@ -6,6 +6,7 @@ team intro, and first pipeline. State is stored per-user in the onboarding table
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 
@@ -88,7 +89,6 @@ async def _get_or_create_state(pool: asyncpg.Pool, user: ForgeUser) -> dict:
         except asyncpg.UndefinedTableError:
             pass
 
-        import json
         await pool.execute(
             """
             INSERT INTO onboarding (user_id, org_id, steps)
@@ -105,7 +105,6 @@ async def _get_or_create_state(pool: asyncpg.Pool, user: ForgeUser) -> dict:
             user.user_id,
         )
 
-    import json
     steps = json.loads(row["steps"]) if isinstance(row["steps"], str) else (row["steps"] or DEFAULT_STEPS)
 
     return {
@@ -155,7 +154,6 @@ async def update_step(
     # Ensure state exists
     await _get_or_create_state(pool, user)
 
-    import json
     now = datetime.now(timezone.utc)
 
     # Update the specific step
@@ -227,7 +225,6 @@ async def complete_onboarding(
     await _ensure_onboarding_table(pool)
     await _get_or_create_state(pool, user)
 
-    import json
     now = datetime.now(timezone.utc)
 
     # Mark all steps complete
@@ -308,7 +305,6 @@ async def validate_api_key(
     await _ensure_onboarding_table(pool)
     await _get_or_create_state(pool, user)
 
-    import json
     now = datetime.now(timezone.utc)
 
     row = await pool.fetchrow(

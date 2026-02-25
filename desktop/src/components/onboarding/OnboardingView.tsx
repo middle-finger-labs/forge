@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Check, ChevronDown, Key, Github, Users, Zap } from "lucide-react";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useOnboardingStore, type OnboardingStepName } from "@/stores/onboardingStore";
@@ -35,6 +35,35 @@ export function OnboardingView() {
   const { serverUrl, authToken } = useConnectionStore();
   const { steps, expandedStep, setExpandedStep, dismiss, completedCount, totalSteps } =
     useOnboardingStore();
+
+  // Auto-expand first incomplete step on mount
+  const hasAutoExpanded = useRef(false);
+  useEffect(() => {
+    if (hasAutoExpanded.current) return;
+    const firstIncomplete = STEP_DEFS.find((d) => !steps[d.key]);
+    if (firstIncomplete) {
+      setExpandedStep(firstIncomplete.key);
+      hasAutoExpanded.current = true;
+    }
+  }, [steps, setExpandedStep]);
+
+  // Auto-advance to next incomplete step when a step completes
+  const prevStepsRef = useRef(steps);
+  useEffect(() => {
+    const prev = prevStepsRef.current;
+    prevStepsRef.current = steps;
+
+    // Check if any step just flipped from false to true
+    const justCompleted = STEP_DEFS.some((d) => steps[d.key] && !prev[d.key]);
+    if (!justCompleted) return;
+
+    const nextIncomplete = STEP_DEFS.find((d) => !steps[d.key]);
+    if (nextIncomplete) {
+      setExpandedStep(nextIncomplete.key);
+    } else {
+      setExpandedStep(null);
+    }
+  }, [steps, setExpandedStep]);
 
   const handleSkip = useCallback(async () => {
     if (serverUrl && authToken) {
