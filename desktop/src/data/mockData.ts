@@ -3,6 +3,7 @@ import { AGENT_REGISTRY, AGENT_ROLES } from "@/types/agent";
 import type { Conversation, Participant } from "@/types/conversation";
 import type { Message } from "@/types/message";
 import type { PipelineRun } from "@/types/pipeline";
+import type { Repository, FileNode } from "@/types/repository";
 
 // ─── Agents ──────────────────────────────────────────
 
@@ -406,3 +407,102 @@ export const MOCK_ACTIVITY: ActivityEvent[] = [
     timestamp: new Date(Date.now() - 43200000).toISOString(),
   },
 ];
+
+// ─── Repositories ───────────────────────────────────
+
+export const MOCK_REPOS: Repository[] = [
+  {
+    id: "repo-forge-api",
+    name: "forge-api",
+    source: "https://github.com/middlefingerlabs/forge-api.git",
+    sourceType: "git",
+    indexingStatus: "ready",
+    lastIndexedAt: new Date(Date.now() - 7200000).toISOString(), // 2h ago
+    chunkCount: 1847,
+    languages: ["TypeScript", "SQL", "YAML"],
+    fileCount: 234,
+    localPath: "/Users/homebase/repos/forge-api",
+    defaultBranch: "main",
+  },
+  {
+    id: "repo-forge-desktop",
+    name: "forge-desktop",
+    source: "/Users/homebase/forge/desktop",
+    sourceType: "local",
+    indexingStatus: "ready",
+    lastIndexedAt: new Date(Date.now() - 3600000).toISOString(), // 1h ago
+    chunkCount: 923,
+    languages: ["TypeScript", "CSS", "Rust"],
+    fileCount: 156,
+    localPath: "/Users/homebase/forge/desktop",
+    defaultBranch: "main",
+  },
+  {
+    id: "repo-shared-libs",
+    name: "shared-libs",
+    source: "https://github.com/middlefingerlabs/shared-libs.git",
+    sourceType: "git",
+    indexingStatus: "indexing",
+    indexingProgress: 67,
+    chunkCount: 412,
+    languages: ["TypeScript", "JavaScript"],
+    fileCount: 89,
+    localPath: "/Users/homebase/repos/shared-libs",
+    defaultBranch: "main",
+  },
+];
+
+export const MOCK_FILE_TREE: Record<string, FileNode[]> = {
+  "repo-forge-api": [
+    {
+      name: "src",
+      path: "src",
+      type: "directory",
+      children: [
+        {
+          name: "routes",
+          path: "src/routes",
+          type: "directory",
+          children: [
+            { name: "auth.ts", path: "src/routes/auth.ts", type: "file", language: "TypeScript", chunkCount: 8 },
+            { name: "pipelines.ts", path: "src/routes/pipelines.ts", type: "file", language: "TypeScript", chunkCount: 12 },
+            { name: "agents.ts", path: "src/routes/agents.ts", type: "file", language: "TypeScript", chunkCount: 6 },
+            { name: "users.ts", path: "src/routes/users.ts", type: "file", language: "TypeScript", chunkCount: 5 },
+          ],
+        },
+        {
+          name: "models",
+          path: "src/models",
+          type: "directory",
+          children: [
+            { name: "User.ts", path: "src/models/User.ts", type: "file", language: "TypeScript", chunkCount: 4 },
+            { name: "Pipeline.ts", path: "src/models/Pipeline.ts", type: "file", language: "TypeScript", chunkCount: 7 },
+            { name: "Agent.ts", path: "src/models/Agent.ts", type: "file", language: "TypeScript", chunkCount: 3 },
+          ],
+        },
+        {
+          name: "middleware",
+          path: "src/middleware",
+          type: "directory",
+          children: [
+            { name: "auth.ts", path: "src/middleware/auth.ts", type: "file", language: "TypeScript", chunkCount: 3 },
+            { name: "rateLimit.ts", path: "src/middleware/rateLimit.ts", type: "file", language: "TypeScript", chunkCount: 2 },
+          ],
+        },
+        { name: "index.ts", path: "src/index.ts", type: "file", language: "TypeScript", chunkCount: 2 },
+        { name: "config.ts", path: "src/config.ts", type: "file", language: "TypeScript", chunkCount: 1 },
+      ],
+    },
+    {
+      name: "migrations",
+      path: "migrations",
+      type: "directory",
+      children: [
+        { name: "001_users.sql", path: "migrations/001_users.sql", type: "file", language: "SQL", chunkCount: 1 },
+        { name: "002_pipelines.sql", path: "migrations/002_pipelines.sql", type: "file", language: "SQL", chunkCount: 1 },
+      ],
+    },
+    { name: "package.json", path: "package.json", type: "file", language: "JSON", chunkCount: 1 },
+    { name: "tsconfig.json", path: "tsconfig.json", type: "file", language: "JSON", chunkCount: 1 },
+  ],
+};

@@ -19,6 +19,8 @@ tauri-plugin-websocket = "2"
 tauri-plugin-os = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+keyring = "3"
 
 # Mobile plugins (compile on all targets, activate on mobile)
 tauri-plugin-biometric = "2"

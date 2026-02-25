@@ -135,6 +135,66 @@ from integrations.webhook_server import webhook_router  # noqa: E402
 
 app.include_router(webhook_router)
 
+# Conversation routes (desktop app)
+from api.routes.conversations import conversations_router  # noqa: E402
+
+app.include_router(conversations_router)
+
+# Push notification routes (mobile device token registration)
+from api.routes.push import push_router  # noqa: E402
+
+app.include_router(push_router)
+
+# Lessons management routes (Settings → Agents → Lessons)
+from api.routes.lessons import lessons_router  # noqa: E402
+
+app.include_router(lessons_router)
+
+# Prompt version management routes (Settings → Agents → Prompts)
+from api.routes.prompts import pipeline_router, prompts_router  # noqa: E402
+
+app.include_router(prompts_router)
+app.include_router(pipeline_router)
+
+# Magic link auth routes
+from api.routes.auth import auth_router  # noqa: E402
+
+app.include_router(auth_router)
+
+# Web fallback for magic link authentication
+from api.routes.web_auth import web_auth_router  # noqa: E402
+
+app.include_router(web_auth_router)
+
+# Onboarding checklist routes
+from api.routes.onboarding import onboarding_router  # noqa: E402
+
+app.include_router(onboarding_router)
+
+
+# ---------------------------------------------------------------------------
+# Server info (public, no auth)
+# ---------------------------------------------------------------------------
+
+SERVER_PUBLIC_URL = os.environ.get("FORGE_PUBLIC_URL", "http://localhost:8000")
+SERVER_NAME = os.environ.get("FORGE_SERVER_NAME", "Forge")
+
+
+@app.get("/api/server/info")
+async def server_info():
+    """Public endpoint returning server identity and capabilities.
+
+    Used by the desktop app to verify a server is reachable and display
+    workspace info before authentication.
+    """
+    return {
+        "name": SERVER_NAME,
+        "version": "0.1.0",
+        "server_url": SERVER_PUBLIC_URL,
+        "auth_methods": ["magic_link", "password"],
+        "logo_url": None,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -220,7 +280,14 @@ async def health_check():
         status["temporal"] = f"error: {exc}"
 
     all_ok = all(v == "ok" for v in status.values())
-    return {"healthy": all_ok, "services": status}
+
+    # Expose the public auth URL so desktop/mobile clients know where to sign in
+    auth_url = os.environ.get("FORGE_PUBLIC_AUTH_URL", "")
+
+    result: dict = {"healthy": all_ok, "services": status}
+    if auth_url:
+        result["auth_url"] = auth_url
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +536,26 @@ async def reject_pipeline(pipeline_id: str, req: ApprovalRequest, user: ForgeUse
     )
 
     log.info("rejection sent", pipeline_id=pipeline_id, stage=req.stage)
+
+    # Best-effort: extract a lesson from the rejection feedback
+    if req.notes:
+        try:
+            from agents.learning.feedback_processor import FeedbackProcessor
+
+            processor = FeedbackProcessor()
+            # Fire-and-forget — don't block the rejection response
+            import asyncio
+
+            asyncio.ensure_future(processor.process_rejection(
+                pipeline_id=pipeline_id,
+                stage=req.stage,
+                user_comment=req.notes,
+                original_output={},
+                org_id=user.org_id,
+            ))
+        except Exception as exc:
+            log.debug("lesson extraction skipped", error=str(exc))
+
     return {"pipeline_id": pipeline_id, "action": "rejected", "stage": req.stage}
 
 
@@ -766,6 +853,157 @@ async def ws_pipeline_events(websocket: WebSocket, pipeline_id: str, token: str 
             "online": online,
         })
         log.info("ws room left", pipeline_id=pipeline_id, user_id=user.user_id)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket — Unified endpoint for desktop app
+# ---------------------------------------------------------------------------
+
+# In-memory tracking of unified WS connections: org_id -> set of (user_id, ws)
+_unified_clients: dict[str, dict[str, WebSocket]] = defaultdict(dict)
+_unified_lock = asyncio.Lock()
+
+
+@app.websocket("/ws")
+async def ws_unified(websocket: WebSocket, token: str = ""):
+    """Unified WebSocket for the desktop app's conversational interface.
+
+    Unlike the pipeline-specific ``/ws/pipeline/{id}`` endpoint, this
+    connects the user to ALL their conversations and receives org-wide
+    agent status updates.
+
+    Query params:
+        token: session token for authentication
+
+    Incoming message types from clients:
+        - {"type": "typing", "payload": {"conversationId": "...", "isTyping": true}}
+        - {"type": "ping"}
+        - {"type": "subscribe", "payload": {"conversationId": "..."}}
+
+    Outgoing message types to clients:
+        - {"type": "message", "payload": Message}
+        - {"type": "agent_status", "payload": AgentStatus}
+        - {"type": "pipeline_event", "payload": PipelineEvent}
+        - {"type": "typing", "payload": {"who": "...", "conversationId": "..."}}
+        - {"type": "connection_status", "payload": "connected"}
+    """
+    user = await _validate_ws_token(token)
+    if not user:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    await websocket.accept()
+
+    # Register this client
+    async with _unified_lock:
+        _unified_clients[user.org_id][user.user_id] = websocket
+
+    # Send initial connection confirmation
+    await websocket.send_text(json.dumps({
+        "type": "connection_status",
+        "payload": "connected",
+    }))
+
+    async def listen_org_events():
+        """Listen for org-wide events (agent status changes, etc.) via Redis."""
+        try:
+            r = _get_redis()
+            pubsub = r.pubsub()
+            await pubsub.subscribe(f"forge:org:{user.org_id}:events")
+            async for msg in pubsub.listen():
+                if msg["type"] != "message":
+                    continue
+                try:
+                    await websocket.send_text(msg["data"])
+                except Exception:
+                    break
+            await pubsub.unsubscribe(f"forge:org:{user.org_id}:events")
+        except Exception:
+            pass
+
+    async def listen_conversation_events():
+        """Listen for messages across all conversations the user has access to.
+
+        Subscribes to a pattern channel so new conversations are
+        automatically picked up.
+        """
+        try:
+            r = _get_redis()
+            pubsub = r.pubsub()
+            await pubsub.psubscribe(f"forge:conv:*")
+            async for msg in pubsub.listen():
+                if msg["type"] != "pmessage":
+                    continue
+                try:
+                    data = json.loads(msg["data"])
+                    await websocket.send_text(json.dumps(data, default=str))
+                except Exception:
+                    break
+            await pubsub.punsubscribe(f"forge:conv:*")
+        except Exception:
+            pass
+
+    async def listen_client():
+        """Handle incoming messages from the desktop client."""
+        try:
+            while True:
+                raw = await websocket.receive_text()
+
+                # Handle pong/ping
+                if raw == "ping":
+                    await websocket.send_text("pong")
+                    continue
+
+                try:
+                    data = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                msg_type = data.get("type")
+                payload = data.get("payload", {})
+
+                if msg_type == "typing":
+                    # Broadcast typing indicator to conversation subscribers
+                    conv_id = payload.get("conversationId", "")
+                    if conv_id:
+                        try:
+                            r = _get_redis()
+                            await r.publish(
+                                f"forge:conv:{conv_id}",
+                                json.dumps({
+                                    "type": "typing",
+                                    "payload": {
+                                        "who": user.name,
+                                        "conversationId": conv_id,
+                                    },
+                                }),
+                            )
+                        except Exception:
+                            pass
+
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+
+    try:
+        log.info("unified ws connected", user_id=user.user_id, org_id=user.org_id)
+        tasks = [
+            asyncio.create_task(listen_org_events()),
+            asyncio.create_task(listen_conversation_events()),
+            asyncio.create_task(listen_client()),
+        ]
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+    except Exception as exc:
+        log.warning("unified ws error", error=str(exc))
+    finally:
+        async with _unified_lock:
+            _unified_clients.get(user.org_id, {}).pop(user.user_id, None)
+            if user.org_id in _unified_clients and not _unified_clients[user.org_id]:
+                del _unified_clients[user.org_id]
+        log.info("unified ws disconnected", user_id=user.user_id)
 
 
 # ---------------------------------------------------------------------------

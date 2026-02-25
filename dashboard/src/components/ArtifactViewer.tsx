@@ -61,7 +61,7 @@ function stageLabel(stage: string): string {
   return stage.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-const KIND_TITLES: Record<ArtifactKind, string> = {
+export const KIND_TITLES: Record<ArtifactKind, string> = {
   product_spec: 'Product Spec',
   enriched_spec: 'Enriched Spec',
   tech_spec: 'Tech Spec',
@@ -562,7 +562,7 @@ function QAReviewView({ data }: { data: Record<string, unknown> }) {
 // View dispatcher
 // ---------------------------------------------------------------------------
 
-const VIEWS: Record<ArtifactKind, React.ComponentType<{ data: Record<string, unknown> }>> = {
+export const VIEWS: Record<ArtifactKind, React.ComponentType<{ data: Record<string, unknown> }>> = {
   product_spec: ProductSpecView,
   enriched_spec: ProductSpecView, // Same shape, enriched version
   tech_spec: TechSpecView,

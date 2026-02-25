@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -86,9 +86,9 @@ function resolveStageStatus(stage: Stage, state: PipelineState): NodeStatus {
 // Ticket status (6 states with distinct colors)
 // ---------------------------------------------------------------------------
 
-type TicketNodeStatus = 'pending' | 'coding' | 'qa_review' | 'revision' | 'merged' | 'failed'
+export type TicketNodeStatus = 'pending' | 'coding' | 'qa_review' | 'revision' | 'merged' | 'failed'
 
-function resolveTicketNodeStatus(ticket: TicketExecution): TicketNodeStatus {
+export function resolveTicketNodeStatus(ticket: TicketExecution): TicketNodeStatus {
   const s = ticket.status
   if (s === 'completed' || s === 'complete' || s === 'merged') return 'merged'
   if (s === 'failed' || s === 'error') return 'failed'
@@ -152,7 +152,7 @@ const TICKET_RING: Record<TicketNodeStatus, string> = {
   merged: 'border-emerald-600',
   failed: 'border-red-600',
 }
-const TICKET_BG: Record<TicketNodeStatus, string> = {
+export const TICKET_BG: Record<TicketNodeStatus, string> = {
   pending: 'bg-slate-800/80',
   coding: 'bg-blue-950/50',
   qa_review: 'bg-purple-950/50',
@@ -168,7 +168,7 @@ const TICKET_ICON_COLOR: Record<TicketNodeStatus, string> = {
   merged: 'text-emerald-400',
   failed: 'text-red-400',
 }
-const TICKET_TEXT: Record<TicketNodeStatus, string> = {
+export const TICKET_TEXT: Record<TicketNodeStatus, string> = {
   pending: 'text-slate-500',
   coding: 'text-blue-300',
   qa_review: 'text-purple-300',
@@ -176,7 +176,7 @@ const TICKET_TEXT: Record<TicketNodeStatus, string> = {
   merged: 'text-emerald-300',
   failed: 'text-red-300',
 }
-const TICKET_STATUS_LABEL: Record<TicketNodeStatus, string> = {
+export const TICKET_STATUS_LABEL: Record<TicketNodeStatus, string> = {
   pending: 'pending',
   coding: 'coding',
   qa_review: 'in QA',
@@ -374,14 +374,14 @@ const QAReviewNode = memo(function QAReviewNode({
 // Ticket detail popup
 // ---------------------------------------------------------------------------
 
-interface TicketDetailProps {
+export interface TicketDetailProps {
   ticketKey: string
   ticket: TicketExecution | undefined
   prdTicket: Record<string, unknown> | undefined
   onClose: () => void
 }
 
-function TicketDetailPopup({ ticketKey, ticket, prdTicket, onClose }: TicketDetailProps) {
+export function TicketDetailPopup({ ticketKey, ticket, prdTicket, onClose }: TicketDetailProps) {
   const status = ticket ? resolveTicketNodeStatus(ticket) : 'pending'
   const codeArtifact = ticket?.code_artifact as Record<string, unknown> | null
   const qaReview = ticket?.qa_review as Record<string, unknown> | null
@@ -523,7 +523,7 @@ function TicketDetailPopup({ ticketKey, ticket, prdTicket, onClose }: TicketDeta
   )
 }
 
-function InfoCell({ label, value, className, mono }: {
+export function InfoCell({ label, value, className, mono }: {
   label: string; value: string; className?: string; mono?: boolean
 }) {
   return (
@@ -873,6 +873,7 @@ interface PipelineDAGProps {
   tickets?: TicketExecution[]
   onStageClick?: (stage: string) => void
   onTicketClick?: (ticketKey: string) => void
+  onTicketSelect?: (ticketKey: string, ticket?: TicketExecution, prdTicket?: Record<string, unknown>) => void
   className?: string
 }
 
@@ -881,16 +882,23 @@ export default function PipelineDAG({
   tickets = [],
   onStageClick,
   onTicketClick,
+  onTicketSelect,
   className,
 }: PipelineDAGProps) {
-  const [popupTicket, setPopupTicket] = useState<string | null>(null)
+  // Lookup data for ticket selection
+  const prdBoard = state.prd_board as Record<string, unknown> | null
+  const prdTickets = (prdBoard?.tickets as Record<string, unknown>[]) ?? []
 
   const handleTicketClick = useCallback(
     (ticketKey: string) => {
-      setPopupTicket(ticketKey)
       onTicketClick?.(ticketKey)
+      if (onTicketSelect) {
+        const exec = tickets.find((t) => t.ticket_key === ticketKey)
+        const prd = prdTickets.find((t) => (t.ticket_key as string) === ticketKey)
+        onTicketSelect(ticketKey, exec, prd)
+      }
     },
-    [onTicketClick],
+    [onTicketClick, onTicketSelect, tickets, prdTickets],
   )
 
   const { nodes, edges } = useMemo(
@@ -907,45 +915,27 @@ export default function PipelineDAG({
     [onStageClick],
   )
 
-  // Lookup data for popup
-  const prdBoard = state.prd_board as Record<string, unknown> | null
-  const prdTickets = (prdBoard?.tickets as Record<string, unknown>[]) ?? []
-  const popupExec = popupTicket ? tickets.find((t) => t.ticket_key === popupTicket) : undefined
-  const popupPrd = popupTicket ? prdTickets.find((t) => (t.ticket_key as string) === popupTicket) : undefined
-
   return (
-    <>
-      <div className={clsx('h-[340px] w-full rounded-xl border border-slate-800 bg-slate-950', className)}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodeClick={handleNodeClick}
-          fitView
-          fitViewOptions={{ padding: 0.15 }}
-          panOnDrag
-          zoomOnScroll={false}
-          panOnScroll
-          preventScrolling={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          proOptions={{ hideAttribution: true }}
-          colorMode="dark"
-        >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
-        </ReactFlow>
-      </div>
-
-      {/* Ticket detail popup */}
-      {popupTicket && (
-        <TicketDetailPopup
-          ticketKey={popupTicket}
-          ticket={popupExec}
-          prdTicket={popupPrd}
-          onClose={() => setPopupTicket(null)}
-        />
-      )}
-    </>
+    <div className={clsx('h-[340px] w-full rounded-xl border border-slate-800 bg-slate-950', className)}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodeClick={handleNodeClick}
+        fitView
+        fitViewOptions={{ padding: 0.15 }}
+        panOnDrag
+        zoomOnScroll={false}
+        panOnScroll
+        preventScrolling={false}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        proOptions={{ hideAttribution: true }}
+        colorMode="dark"
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
+      </ReactFlow>
+    </div>
   )
 }

@@ -24,6 +24,18 @@ export default defineConfig(async () => ({
           port: 1421,
         }
       : undefined,
+    proxy: {
+      "/api": {
+        target: process.env.FORGE_API_URL || "http://localhost:8000",
+        changeOrigin: true,
+        secure: true,
+      },
+      "/ws": {
+        target: (process.env.FORGE_API_URL || "http://localhost:8000").replace(/^http/, "ws"),
+        ws: true,
+        changeOrigin: true,
+      },
+    },
     watch: {
       ignored: ["**/src-tauri/**"],
     },

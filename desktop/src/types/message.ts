@@ -57,6 +57,16 @@ export type MessageContent =
         }
       >;
       lessonsApplied: Array<{ agentRole: string; lesson: string }>;
+    }
+  | {
+      type: "code_reference";
+      filePath: string;
+      startLine: number;
+      endLine?: number;
+      repoId: string;
+      repoName: string;
+      snippet?: string;
+      language?: string;
     };
 
 // ─── Reactions ───────────────────────────────────────────

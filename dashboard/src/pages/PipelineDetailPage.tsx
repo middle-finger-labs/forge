@@ -31,7 +31,8 @@ import PipelineDAG from '../components/PipelineDAG.tsx'
 import LogPanel from '../components/LogPanel.tsx'
 import ChatPanel from '../components/ChatPanel.tsx'
 import PresenceBar from '../components/PresenceBar.tsx'
-import ArtifactViewer, { type ArtifactKind } from '../components/ArtifactViewer.tsx'
+import { type ArtifactKind } from '../components/ArtifactViewer.tsx'
+import DetailPane, { type DetailSelection } from '../components/DetailPane.tsx'
 import CostTracker from '../components/CostTracker.tsx'
 import MemoryPanel from '../components/MemoryPanel.tsx'
 import StageFeed from '../components/StageFeed.tsx'
@@ -175,12 +176,8 @@ export default function PipelineDetailPage() {
   const [aborting, setAborting] = useState(false)
   const [showAbortConfirm, setShowAbortConfirm] = useState(false)
 
-  // Artifact viewer state
-  const [artifactView, setArtifactView] = useState<{
-    kind: ArtifactKind
-    data: Record<string, unknown>
-    title?: string
-  } | null>(null)
+  // Detail pane selection (artifact or ticket)
+  const [selection, setSelection] = useState<DetailSelection | null>(null)
 
   // Ticket filter (from DAG click → LogPanel filter)
   const [selectedTicket, setSelectedTicket] = useState<string | null>(null)
@@ -332,7 +329,8 @@ export default function PipelineDetailPage() {
       if (!mapping) return
       const data = pipelineState[mapping.key]
       if (!data || typeof data !== 'object') return
-      setArtifactView({
+      setSelection({
+        type: 'artifact',
         kind: mapping.kind,
         data: data as Record<string, unknown>,
         title: `${stageLabel(stage)} — ${stageLabel(mapping.kind)}`,
@@ -345,11 +343,20 @@ export default function PipelineDetailPage() {
   const handleViewArtifact = useCallback(
     (stage: string, data: Record<string, unknown>) => {
       const mapping = STAGE_ARTIFACT[stage]
-      setArtifactView({
+      setSelection({
+        type: 'artifact',
         kind: mapping?.kind ?? 'product_spec',
         data,
         title: `${stageLabel(stage)} — Review`,
       })
+    },
+    [],
+  )
+
+  // ---- Open ticket detail (from DAG ticket node click) ----
+  const handleTicketSelect = useCallback(
+    (ticketKey: string, ticket?: TicketExecution, prdTicket?: Record<string, unknown>) => {
+      setSelection({ type: 'ticket', ticketKey, ticket, prdTicket })
     },
     [],
   )
@@ -622,7 +629,13 @@ export default function PipelineDetailPage() {
       {/* ================================================================ */}
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-3 p-4 lg:flex-row">
         {/* Left panel: DAG + Log */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 lg:w-[60%] lg:flex-initial">
+        <div
+          className={clsx(
+            'flex min-h-0 flex-col gap-3 transition-all duration-200',
+            selection ? 'lg:w-[35%]' : 'lg:w-[60%]',
+            'lg:flex-initial',
+          )}
+        >
           {/* DAG */}
           {pipelineState && (
             <PipelineDAG
@@ -630,6 +643,7 @@ export default function PipelineDetailPage() {
               tickets={tickets}
               onStageClick={handleStageClick}
               onTicketClick={setSelectedTicket}
+              onTicketSelect={handleTicketSelect}
               className="h-[280px] shrink-0 lg:h-[340px]"
             />
           )}
@@ -638,7 +652,9 @@ export default function PipelineDetailPage() {
           {pipelineState && (
             <StageFeed
               state={pipelineState}
-              onViewArtifact={(kind, data, title) => setArtifactView({ kind, data, title })}
+              onViewArtifact={(kind, data, title) =>
+                setSelection({ type: 'artifact', kind, data, title })
+              }
             />
           )}
 
@@ -659,6 +675,15 @@ export default function PipelineDetailPage() {
           />
         </div>
 
+        {/* Center panel: Detail pane (conditional) */}
+        {selection && (
+          <DetailPane
+            selection={selection}
+            onClose={() => setSelection(null)}
+            className="min-h-[400px] lg:w-[40%] lg:min-h-0"
+          />
+        )}
+
         {/* Right panel: Chat */}
         <ChatPanel
           pipelineId={id!}
@@ -670,19 +695,12 @@ export default function PipelineDetailPage() {
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           onViewArtifact={handleViewArtifact}
-          className="min-h-[400px] lg:w-[40%] lg:min-h-0"
+          className={clsx(
+            'min-h-[400px] lg:min-h-0 transition-all duration-200',
+            selection ? 'lg:w-[25%]' : 'lg:w-[40%]',
+          )}
         />
       </div>
-
-      {/* Artifact viewer modal */}
-      {artifactView && (
-        <ArtifactViewer
-          kind={artifactView.kind}
-          data={artifactView.data}
-          title={artifactView.title}
-          onClose={() => setArtifactView(null)}
-        />
-      )}
     </div>
   )
 }

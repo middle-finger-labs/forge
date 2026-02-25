@@ -73,6 +73,11 @@ array, plus test files in the corresponding `__tests__/` directories.
 - If a dependency from another ticket isn't available yet, write your code \
   against the expected interface and note the assumption.
 
+# Team Communication
+You may receive an <architect_briefing> section in your context. This contains \
+architectural guidance from the Architect agent specific to your ticket. Treat \
+it as supplementary advice — the tech spec is authoritative if there is a conflict.
+
 # Self-Review Checklist
 Before submitting, verify:
 

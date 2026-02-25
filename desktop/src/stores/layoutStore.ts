@@ -6,6 +6,7 @@ export type DetailPanelContent =
   | "agent-profile"
   | "settings"
   | "thread"
+  | "codebase"
   | null;
 
 interface ThreadState {
@@ -22,6 +23,7 @@ interface LayoutState {
   newPipelineModalOpen: boolean;
   settingsOpen: boolean;
   activityFeedOpen: boolean;
+  indexRepoModalOpen: boolean;
 
   toggleDetailPanel: () => void;
   openDetailPanel: (content: DetailPanelContent) => void;
@@ -37,6 +39,8 @@ interface LayoutState {
   closeSettings: () => void;
   openActivityFeed: () => void;
   closeActivityFeed: () => void;
+  openIndexRepoModal: () => void;
+  closeIndexRepoModal: () => void;
 }
 
 const MIN_SIDEBAR_WIDTH = 180;
@@ -51,6 +55,7 @@ export const useLayoutStore = create<LayoutState>((set) => ({
   newPipelineModalOpen: false,
   settingsOpen: false,
   activityFeedOpen: false,
+  indexRepoModalOpen: false,
 
   toggleDetailPanel: () =>
     set((s) => ({
@@ -104,4 +109,7 @@ export const useLayoutStore = create<LayoutState>((set) => ({
 
   openActivityFeed: () => set({ activityFeedOpen: true, settingsOpen: false }),
   closeActivityFeed: () => set({ activityFeedOpen: false }),
+
+  openIndexRepoModal: () => set({ indexRepoModalOpen: true }),
+  closeIndexRepoModal: () => set({ indexRepoModalOpen: false }),
 }));

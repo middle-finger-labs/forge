@@ -41,6 +41,7 @@ async def run_researcher_agent(
     *,
     model: str | None = None,
     max_retries: int = 3,
+    org_id: str = "",
 ) -> tuple[dict | None, float]:
     """Run the researcher agent to produce an EnrichedSpec.
 
@@ -52,12 +53,25 @@ async def run_researcher_agent(
         Optional LLM model override.
     max_retries:
         Maximum validation retry attempts.
+    org_id:
+        Org ID for prompt version resolution.
 
     Returns
     -------
     tuple[dict | None, float]
         (Validated EnrichedSpec dict or None on failure, cost in USD.)
     """
+
+    # Resolve prompt (org-specific override or default)
+    system_prompt = SYSTEM_PROMPT
+    try:
+        from agents.prompts.evaluation import resolve_stage_prompt
+
+        system_prompt, _ = await resolve_stage_prompt(
+            org_id=org_id, stage=2, default_prompt=SYSTEM_PROMPT,
+        )
+    except Exception as exc:
+        log.debug("prompt resolution skipped", error=str(exc))
 
     product_name = product_spec.get("product_name", "unknown product")
 
@@ -77,7 +91,7 @@ async def run_researcher_agent(
     human_prompt += _NO_WEB_TOOLS_NOTICE
 
     return await run_agent(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         human_prompt=human_prompt,
         output_model=EnrichedSpec,
         model=model,

@@ -21,8 +21,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 from itertools import combinations
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from agents.communication.agent_bus import AgentBus
 
 from agents.coding_agent import run_coding_agent_task
 from agents.conflict_resolver import analyze_conflict, resolve_conflict
@@ -55,11 +59,13 @@ class SwarmCoordinator:
         max_concurrent: int = 4,
         worktree_manager: WorktreeManager,
         working_memory: WorkingMemory,
+        agent_bus: AgentBus | None = None,
     ) -> None:
         self.pipeline_id = pipeline_id
         self.max_concurrent = max_concurrent
         self.wm = worktree_manager
         self.wmem = working_memory
+        self._bus = agent_bus
         self._log = log.bind(pipeline_id=pipeline_id)
 
     # -- Public API ---------------------------------------------------------
@@ -68,14 +74,23 @@ class SwarmCoordinator:
         self,
         tickets: list[dict],
         tech_spec_context: dict,
+        *,
+        codebase_contexts: dict[str, str] | None = None,
     ) -> list[CodingTaskResult]:
         """Execute all tickets in a group with bounded concurrency.
+
+        Args:
+            tickets: List of ticket dicts to implement.
+            tech_spec_context: Tech spec context for all tickets.
+            codebase_contexts: Optional mapping of ticket_key → assembled
+                codebase context string from the code index.
 
         Returns results in the same order as *tickets*.
         """
         if not tickets:
             return []
 
+        codebase_contexts = codebase_contexts or {}
         semaphore = asyncio.Semaphore(self.max_concurrent)
         self._log.info(
             "executing group",
@@ -85,9 +100,14 @@ class SwarmCoordinator:
 
         tasks: list[asyncio.Task[CodingTaskResult]] = []
         for ticket in tickets:
+            tk = ticket.get("ticket_key", "unknown")
             task = asyncio.create_task(
-                self._execute_single_ticket(ticket, tech_spec_context, semaphore),
-                name=f"ticket-{ticket.get('ticket_key', 'unknown')}",
+                self._execute_single_ticket(
+                    ticket, tech_spec_context, semaphore,
+                    codebase_context=codebase_contexts.get(tk, ""),
+                    agent_bus=self._bus,
+                ),
+                name=f"ticket-{tk}",
             )
             tasks.append(task)
 
@@ -396,6 +416,9 @@ class SwarmCoordinator:
         ticket: dict,
         tech_spec_context: dict,
         semaphore: asyncio.Semaphore,
+        *,
+        codebase_context: str = "",
+        agent_bus: AgentBus | None = None,
     ) -> CodingTaskResult:
         """Execute one ticket: lock, create worktree, code, clean up."""
         ticket_id = ticket.get("ticket_key", f"unknown-{uuid.uuid4().hex[:6]}")
@@ -436,6 +459,20 @@ class SwarmCoordinator:
                         error=f"Worktree creation failed: {exc}",
                     )
 
+                # 2.5 Get architect briefing (best-effort)
+                if agent_bus:
+                    try:
+                        from agents.communication.briefing import get_architect_briefing
+
+                        briefing = await get_architect_briefing(
+                            agent_bus, ticket, tech_spec_context,
+                        )
+                        if briefing:
+                            codebase_context = briefing + "\n\n" + codebase_context
+                            tlog.info("architect briefing prepended")
+                    except Exception as exc:
+                        tlog.debug("architect briefing failed", error=str(exc))
+
                 # 3. Run coding agent
                 tlog.info("launching coding agent", worktree=worktree_path)
                 try:
@@ -444,6 +481,7 @@ class SwarmCoordinator:
                         tech_spec_context=tech_spec_context,
                         worktree_path=worktree_path,
                         branch_name=branch_name,
+                        codebase_context=codebase_context,
                     )
                 except Exception as exc:
                     tlog.error("coding agent failed", error=str(exc))

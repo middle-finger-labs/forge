@@ -83,6 +83,108 @@ pub fn get_push_token(app: AppHandle) -> Option<String> {
         .and_then(|state| state.get())
 }
 
+// ─── Secure storage (keyring) ───────────────────────
+
+const KEYRING_SERVICE: &str = "com.forge.desktop";
+
+#[tauri::command]
+pub fn save_secure_data(key: String, value: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key)
+        .map_err(|e| format!("Keyring entry error: {}", e))?;
+    entry
+        .set_password(&value)
+        .map_err(|e| format!("Failed to save to keyring: {}", e))
+}
+
+#[tauri::command]
+pub fn get_secure_data(key: String) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key)
+        .map_err(|e| format!("Keyring entry error: {}", e))?;
+    match entry.get_password() {
+        Ok(val) => Ok(Some(val)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Failed to read from keyring: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub fn delete_secure_data(key: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key)
+        .map_err(|e| format!("Keyring entry error: {}", e))?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()), // Already deleted
+        Err(e) => Err(format!("Failed to delete from keyring: {}", e)),
+    }
+}
+
+// ─── HTTP proxy command ─────────────────────────────
+// Proxies HTTP requests through Rust to avoid CORS / WebKit restrictions.
+
+#[derive(serde::Serialize)]
+pub struct ProxyResponse {
+    pub status: u16,
+    pub body: String,
+    pub headers: std::collections::HashMap<String, String>,
+}
+
+#[tauri::command]
+pub async fn proxy_fetch(
+    url: String,
+    method: Option<String>,
+    body: Option<String>,
+    auth_token: Option<String>,
+) -> Result<ProxyResponse, String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("Failed to build client: {}", e))?;
+    let method = method.unwrap_or_else(|| "GET".to_string());
+
+    let mut req = match method.to_uppercase().as_str() {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
+        "DELETE" => client.delete(&url),
+        _ => client.get(&url),
+    };
+
+    req = req.header("Content-Type", "application/json");
+
+    if let Some(token) = auth_token {
+        req = req.header("Authorization", format!("Bearer {}", token));
+    }
+
+    if let Some(b) = body {
+        req = req.body(b);
+    }
+
+    let res = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
+    let status = res.status().as_u16();
+
+    let mut headers = std::collections::HashMap::new();
+    for (key, value) in res.headers().iter() {
+        if let Ok(v) = value.to_str() {
+            // Collect all Set-Cookie values joined by "; "
+            if key.as_str() == "set-cookie" {
+                headers
+                    .entry(key.to_string())
+                    .and_modify(|existing: &mut String| {
+                        existing.push_str("; ");
+                        existing.push_str(v);
+                    })
+                    .or_insert_with(|| v.to_string());
+            } else {
+                headers.insert(key.to_string(), v.to_string());
+            }
+        }
+    }
+
+    let text = res.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+    Ok(ProxyResponse { status, body: text, headers })
+}
+
 // ─── Desktop-only commands ──────────────────────────
 
 #[cfg(desktop)]

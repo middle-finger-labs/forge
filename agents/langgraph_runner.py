@@ -164,6 +164,7 @@ def build_agent_graph(
     max_retries: int = 3,
     model: str | None = None,
     memory_context: str | None = None,
+    codebase_context: str | None = None,
     agent_role: str | None = None,
 ) -> StateGraph:
     """Return a compiled StateGraph that calls an LLM and validates output.
@@ -176,12 +177,17 @@ def build_agent_graph(
     resolved_model = model or os.environ.get("FORGE_MODEL", _DEFAULT_MODEL)
     _agent_role = agent_role  # captured by the closure below
 
-    # Prepend memory context to the system prompt if provided
+    # Prepend memory context and codebase context to the system prompt
     effective_system_prompt = system_prompt
+    if codebase_context:
+        effective_system_prompt = (
+            f"<codebase_context>\n{codebase_context}\n"
+            f"</codebase_context>\n\n{effective_system_prompt}"
+        )
     if memory_context:
         effective_system_prompt = (
             f"<context_from_previous_runs>\n{memory_context}\n"
-            f"</context_from_previous_runs>\n\n{system_prompt}"
+            f"</context_from_previous_runs>\n\n{effective_system_prompt}"
         )
 
     # Langfuse generation recording (lazy import, no-op if unavailable)
@@ -478,6 +484,7 @@ async def run_agent(
     model: str | None = None,
     max_retries: int = 3,
     memory_context: str | None = None,
+    codebase_context: str | None = None,
     agent_role: str | None = None,
 ) -> tuple[dict | None, float]:
     """Run an agent graph and return (parsed_output_dict | None, cost_usd).
@@ -497,6 +504,8 @@ async def run_agent(
         Maximum validation retry attempts before giving up.
     memory_context:
         Optional context from semantic memory to prepend to the system prompt.
+    codebase_context:
+        Optional assembled codebase context to prepend to the system prompt.
     agent_role:
         Agent role string (e.g. ``"architect"``, ``"developer"``).  When
         provided, :class:`~config.model_router.ModelRouter` selects the
@@ -536,6 +545,7 @@ async def run_agent(
         max_retries=max_retries,
         model=routed_model,
         memory_context=memory_context,
+        codebase_context=codebase_context,
         agent_role=agent_role,
     )
 

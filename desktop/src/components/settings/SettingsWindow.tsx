@@ -5,6 +5,7 @@ import {
   Key,
   Bot,
   Info,
+  Users,
   X,
 } from "lucide-react";
 import { GeneralTab } from "./tabs/GeneralTab";
@@ -12,11 +13,13 @@ import { NotificationsTab } from "./tabs/NotificationsTab";
 import { ApiKeysTab } from "./tabs/ApiKeysTab";
 import { AgentsTab } from "./tabs/AgentsTab";
 import { AboutTab } from "./tabs/AboutTab";
+import { TeamTab } from "./tabs/TeamTab";
 
-type SettingsTab = "general" | "notifications" | "api-keys" | "agents" | "about";
+type SettingsTab = "general" | "team" | "notifications" | "api-keys" | "agents" | "about";
 
 const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Settings }> = [
   { id: "general", label: "General", icon: Settings },
+  { id: "team", label: "Team", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "api-keys", label: "API Keys", icon: Key },
   { id: "agents", label: "Agents", icon: Bot },
@@ -98,6 +101,7 @@ export function SettingsWindow({ onClose }: SettingsWindowProps) {
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === "general" && <GeneralTab />}
+          {activeTab === "team" && <TeamTab />}
           {activeTab === "notifications" && <NotificationsTab />}
           {activeTab === "api-keys" && <ApiKeysTab />}
           {activeTab === "agents" && <AgentsTab />}

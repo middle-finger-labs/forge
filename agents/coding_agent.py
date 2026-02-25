@@ -78,7 +78,11 @@ def _join_standards(standards: list | str) -> str:
     return "\n".join(standards) if isinstance(standards, list) else str(standards)
 
 
-def _build_prompt(ticket: dict, tech_spec_context: dict) -> str:
+def _build_prompt(
+    ticket: dict,
+    tech_spec_context: dict,
+    codebase_context: str = "",
+) -> str:
     """Assemble the human prompt from ticket + tech spec context."""
     file_structure = tech_spec_context.get("file_structure", {})
     coding_standards = tech_spec_context.get("coding_standards", [])
@@ -86,24 +90,36 @@ def _build_prompt(ticket: dict, tech_spec_context: dict) -> str:
     related_models = tech_spec_context.get("related_models", [])
     existing_contents = tech_spec_context.get("existing_file_contents", {})
 
-    return (
+    parts = [
         "Implement the following ticket. Study all provided context "
-        "before writing any code.\n\n"
-        f"--- TICKET ---\n{json.dumps(ticket, indent=2)}\n--- END TICKET ---\n\n"
+        "before writing any code.\n",
+    ]
+
+    # Assembled codebase context from the code index
+    if codebase_context:
+        parts.append(
+            f"--- CODEBASE CONTEXT ---\n{codebase_context}\n"
+            "--- END CODEBASE CONTEXT ---\n"
+        )
+
+    parts.extend([
+        f"--- TICKET ---\n{json.dumps(ticket, indent=2)}\n--- END TICKET ---\n",
         f"--- FILE STRUCTURE ---\n{json.dumps(file_structure, indent=2)}\n"
-        "--- END FILE STRUCTURE ---\n\n"
+        "--- END FILE STRUCTURE ---\n",
         f"--- CODING STANDARDS ---\n"
         f"{_join_standards(coding_standards)}\n"
-        "--- END CODING STANDARDS ---\n\n"
+        "--- END CODING STANDARDS ---\n",
         f"--- RELATED ENDPOINTS ---\n{json.dumps(related_endpoints, indent=2)}\n"
-        "--- END RELATED ENDPOINTS ---\n\n"
+        "--- END RELATED ENDPOINTS ---\n",
         f"--- RELATED DATABASE MODELS ---\n{json.dumps(related_models, indent=2)}\n"
-        "--- END RELATED MODELS ---\n\n"
+        "--- END RELATED MODELS ---\n",
         f"--- EXISTING FILE CONTENTS ---\n{json.dumps(existing_contents, indent=2)}\n"
-        "--- END EXISTING FILE CONTENTS ---\n\n"
+        "--- END EXISTING FILE CONTENTS ---\n",
         "Implement the ticket completely, run tests and lint, then return "
-        "the CodeArtifact JSON."
-    )
+        "the CodeArtifact JSON.",
+    ])
+
+    return "\n".join(parts)
 
 
 def _build_claude_md(tech_spec_context: dict) -> str:
@@ -193,6 +209,8 @@ async def _run_claude_code(
     worktree_path: str,
     branch_name: str,
     timeout: float,
+    *,
+    codebase_context: str = "",
 ) -> tuple[dict | None, float]:
     """Execute the ticket using ``claude -p`` in headless mode."""
     agent_log = log.bind(
@@ -213,7 +231,7 @@ async def _run_claude_code(
 
     # Retrieve memory context and prepend to prompt
     memory_ctx = await _get_coding_memory_context(ticket)
-    prompt = _build_prompt(ticket, tech_spec_context)
+    prompt = _build_prompt(ticket, tech_spec_context, codebase_context=codebase_context)
     if memory_ctx:
         prompt = (
             f"<context_from_previous_runs>\n{memory_ctx}\n</context_from_previous_runs>\n\n{prompt}"
@@ -307,6 +325,8 @@ async def _run_api_fallback(
     worktree_path: str,
     branch_name: str,
     timeout: float,
+    *,
+    codebase_context: str = "",
 ) -> tuple[dict | None, float]:
     """Execute the ticket using the Anthropic Python SDK directly."""
     import importlib.util
@@ -323,7 +343,7 @@ async def _run_api_fallback(
     agent_log.info("starting API fallback execution")
     start = time.monotonic()
 
-    human_prompt = _build_prompt(ticket, tech_spec_context)
+    human_prompt = _build_prompt(ticket, tech_spec_context, codebase_context=codebase_context)
 
     # Retrieve memory context and prepend to system prompt
     memory_ctx = await _get_coding_memory_context(ticket)
@@ -478,17 +498,37 @@ async def _run_api_fallback(
 
 
 async def _get_coding_memory_context(ticket: dict) -> str:
-    """Retrieve relevant memories for the coding agent."""
+    """Retrieve relevant memories and lessons for the coding agent."""
+    parts: list[str] = []
+    task_desc = f"Implement ticket {ticket.get('ticket_key', '')}: {ticket.get('title', '')}"
+
+    # Semantic memory (existing)
     try:
         from memory.semantic_memory import get_relevant_context
 
-        return await get_relevant_context(
-            "developer",
-            f"Implement ticket {ticket.get('ticket_key', '')}: {ticket.get('title', '')}",
-        )
+        mem_ctx = await get_relevant_context("developer", task_desc)
+        if mem_ctx:
+            parts.append(mem_ctx)
     except Exception as exc:
         log.debug("memory recall skipped", error=str(exc))
-        return ""
+
+    # Lessons from past feedback
+    try:
+        from agents.learning.feedback_processor import get_lessons_for_prompt
+        from memory.observability import get_pipeline_context
+
+        ctx = get_pipeline_context()
+        org_id = (ctx or {}).get("org_id", "")
+        if org_id:
+            lessons_ctx = await get_lessons_for_prompt(
+                task_desc, org_id=org_id, agent_role="developer",
+            )
+            if lessons_ctx:
+                parts.append(lessons_ctx)
+    except Exception as exc:
+        log.debug("lesson recall skipped", error=str(exc))
+
+    return "\n\n".join(parts)
 
 
 async def run_coding_agent_task(
@@ -498,6 +538,7 @@ async def run_coding_agent_task(
     branch_name: str,
     *,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    codebase_context: str = "",
 ) -> tuple[dict | None, float]:
     """Execute a single PRD ticket in a git worktree.
 
@@ -519,11 +560,13 @@ async def run_coding_agent_task(
     try:
         if claude_cli_available():
             return await _run_claude_code(
-                ticket, tech_spec_context, worktree_path, branch_name, timeout
+                ticket, tech_spec_context, worktree_path, branch_name, timeout,
+                codebase_context=codebase_context,
             )
         else:
             return await _run_api_fallback(
-                ticket, tech_spec_context, worktree_path, branch_name, timeout
+                ticket, tech_spec_context, worktree_path, branch_name, timeout,
+                codebase_context=codebase_context,
             )
     except Exception as exc:
         agent_log.error(

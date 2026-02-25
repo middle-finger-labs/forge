@@ -139,6 +139,43 @@ def _get_error_reporter():
     return get_error_reporter()
 
 
+async def _record_prompt_eval(
+    *,
+    org_id: str,
+    pipeline_id: str,
+    stage: int,
+    agent_role: str,
+    verdict: str | None = None,
+    attempts: int = 1,
+    cost_usd: float = 0.0,
+    duration_seconds: float = 0.0,
+    error: str | None = None,
+) -> None:
+    """Best-effort prompt evaluation recording after a stage completes."""
+    try:
+        from agents import PROMPTS_BY_STAGE
+        from agents.prompts.evaluation import record_stage_evaluation, resolve_stage_prompt
+
+        default_prompt = PROMPTS_BY_STAGE.get(stage, {}).get("system", "")
+        _, version_id = await resolve_stage_prompt(
+            org_id=org_id, stage=stage, default_prompt=default_prompt,
+        )
+        await record_stage_evaluation(
+            org_id=org_id,
+            pipeline_id=pipeline_id,
+            stage=stage,
+            agent_role=agent_role,
+            prompt_version_id=version_id,
+            verdict=verdict,
+            attempts=attempts,
+            cost_usd=cost_usd,
+            duration_seconds=duration_seconds,
+            error=error,
+        )
+    except Exception as exc:
+        log.debug("prompt eval recording skipped", error=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Stage 1 — Business Analysis
 # ---------------------------------------------------------------------------
@@ -171,7 +208,7 @@ async def run_business_analysis(input: dict) -> StageResult:
     start = time.monotonic()
 
     try:
-        result, cost = await run_ba_agent(business_spec)
+        result, cost = await run_ba_agent(business_spec, org_id=org_id)
         elapsed = time.monotonic() - start
 
         if result is not None:
@@ -188,6 +225,11 @@ async def run_business_analysis(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+            )
+            await _record_prompt_eval(
+                org_id=org_id, pipeline_id=pipeline_id, stage=1,
+                agent_role="business_analyst", cost_usd=cost,
+                duration_seconds=round(elapsed, 2),
             )
             return StageResult(
                 stage=PipelineStage.BUSINESS_ANALYSIS,
@@ -263,7 +305,7 @@ async def run_research(input: dict) -> StageResult:
     start = time.monotonic()
 
     try:
-        result, cost = await run_researcher_agent(product_spec)
+        result, cost = await run_researcher_agent(product_spec, org_id=org_id)
         elapsed = time.monotonic() - start
 
         if result is not None:
@@ -281,6 +323,11 @@ async def run_research(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+            )
+            await _record_prompt_eval(
+                org_id=org_id, pipeline_id=pipeline_id, stage=2,
+                agent_role="research_analyst", cost_usd=cost,
+                duration_seconds=round(elapsed, 2),
             )
             return StageResult(
                 stage=PipelineStage.RESEARCH,
@@ -356,7 +403,7 @@ async def run_architecture(input: dict) -> StageResult:
     start = time.monotonic()
 
     try:
-        result, cost = await run_architect_agent(enriched_spec)
+        result, cost = await run_architect_agent(enriched_spec, org_id=org_id)
         elapsed = time.monotonic() - start
 
         if result is not None:
@@ -373,6 +420,11 @@ async def run_architecture(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+            )
+            await _record_prompt_eval(
+                org_id=org_id, pipeline_id=pipeline_id, stage=3,
+                agent_role="architect", cost_usd=cost,
+                duration_seconds=round(elapsed, 2),
             )
             return StageResult(
                 stage=PipelineStage.ARCHITECTURE,
@@ -470,6 +522,11 @@ async def run_task_decomposition(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+            )
+            await _record_prompt_eval(
+                org_id=org_id, pipeline_id=pipeline_id, stage=4,
+                agent_role="ticket_manager", cost_usd=cost,
+                duration_seconds=round(elapsed, 2),
             )
             return StageResult(
                 stage=PipelineStage.TASK_DECOMPOSITION,
@@ -1772,17 +1829,78 @@ async def run_coding_group(input: GroupTaskInput) -> GroupTaskResult:
 
     mgr = WorktreeManager(repo_path, worktrees_dir=wt_dir)
     wm = get_working_memory()
+
+    # Create AgentBus for inter-agent communication
+    from agents.communication.agent_bus import AgentBus
+
+    agent_bus = AgentBus(pipeline_id=input.pipeline_id)
+
     coordinator = SwarmCoordinator(
         pipeline_id=input.pipeline_id,
         worktree_manager=mgr,
         working_memory=wm,
+        agent_bus=agent_bus,
     )
+
+    # Phase 0: Assemble codebase context per ticket (best-effort)
+    codebase_contexts: dict[str, str] = {}
+    if input.repo_url and input.org_id:
+        try:
+            from agents.codebase.context_assembler import (
+                ContextAssembler,
+                get_agent_context_config,
+            )
+            from agents.codebase.embedder import ChunkEmbedder
+            from agents.codebase.store import CodeChunkStore
+
+            ctx_store = CodeChunkStore()
+            ctx_embedder = ChunkEmbedder()
+            assembler = ContextAssembler(ctx_store, ctx_embedder)
+            ctx_config = get_agent_context_config("engineer")
+
+            for ticket in input.tickets:
+                tk = ticket.get("ticket_key", "unknown")
+                task_desc = ticket.get("description", "") or ticket.get("title", "")
+                target_files = ticket.get("files_owned", [])
+                try:
+                    ctx = await assembler.assemble(
+                        task_description=task_desc,
+                        repo_url=input.repo_url,
+                        org_id=input.org_id,
+                        max_tokens=ctx_config["max_tokens"],
+                        strategy=ctx_config["strategy"],
+                        file_tree_budget=ctx_config["file_tree_budget"],
+                        agent_role="engineer",
+                        target_files=target_files,
+                    )
+                    if ctx.chunks:
+                        codebase_contexts[tk] = ctx.format()
+                        pipeline_log.info(
+                            "codebase context assembled",
+                            ticket=tk,
+                            chunks=len(ctx.chunks),
+                            tokens=ctx.total_tokens,
+                        )
+                except Exception as ctx_exc:
+                    pipeline_log.warning(
+                        "codebase context assembly failed for ticket",
+                        ticket=tk,
+                        error=str(ctx_exc),
+                    )
+
+            await ctx_store.close()
+        except Exception as ctx_exc:
+            pipeline_log.warning(
+                "codebase context assembly unavailable",
+                error=str(ctx_exc),
+            )
 
     # 1. Parallel coding
     pipeline_log.info("phase 1: parallel coding")
     coding_results = await coordinator.execute_group(
         tickets=input.tickets,
         tech_spec_context=input.tech_spec_context,
+        codebase_contexts=codebase_contexts,
     )
 
     ticket_result_dicts: list[dict] = []
@@ -1884,12 +2002,16 @@ async def run_coding_group(input: GroupTaskInput) -> GroupTaskResult:
         merge_result = {"merged": [], "conflicted": [], "conflict_details": []}
         pipeline_log.warning("no approved tickets to merge")
 
+    # Accumulate agent communication cost
+    total_cost += agent_bus.total_cost_usd
+
     elapsed = time.monotonic() - start
     pipeline_log.info(
         "coding group complete",
         merged=len(merge_result.get("merged", [])),
         failed=len(failed_tickets),
         total_cost=round(total_cost, 4),
+        communication_cost=round(agent_bus.total_cost_usd, 4),
         duration_seconds=round(elapsed, 2),
     )
 
@@ -1901,6 +2023,8 @@ async def run_coding_group(input: GroupTaskInput) -> GroupTaskResult:
         total_cost_usd=total_cost,
         failed_tickets=failed_tickets,
         duration_seconds=round(elapsed, 2),
+        communication_cost_usd=agent_bus.total_cost_usd,
+        agent_exchanges=agent_bus.exchanges,
     )
 
 
@@ -2308,6 +2432,152 @@ async def push_pipeline_results(input: dict) -> StageResult:
 
 
 # ---------------------------------------------------------------------------
+# Codebase indexing activity
+# ---------------------------------------------------------------------------
+
+
+@activity.defn(name="run_index_codebase")
+async def run_index_codebase(input: dict) -> StageResult:
+    """Index a codebase using tree-sitter AST parsing + dual embeddings.
+
+    Runs after repo clone/scaffold and before the coding swarm.  Uses
+    incremental indexing when a previous index exists for the repo.
+
+    Input keys:
+        pipeline_id (str), org_id (str), repo_url (str), repo_path (str)
+    """
+    pipeline_id = input.get("pipeline_id", "")
+    org_id = input.get("org_id", "")
+    repo_url = input.get("repo_url", "")
+    repo_path = input.get("repo_path", "")
+
+    index_log = log.bind(
+        activity="run_index_codebase",
+        pipeline_id=pipeline_id,
+        repo_path=repo_path,
+    )
+    index_log.info("starting codebase indexing")
+    start = time.monotonic()
+
+    if os.environ.get("FORGE_TEST_MODE") == "1":
+        elapsed = time.monotonic() - start
+        index_log.info("codebase indexing complete (test mode)")
+        return StageResult(
+            stage=PipelineStage.TASK_DECOMPOSITION,
+            success=True,
+            artifact={"indexed": True, "chunk_count": 0, "test_mode": True},
+            cost_usd=0.0,
+            duration_seconds=round(elapsed, 2),
+        )
+
+    if not repo_path or not os.path.isdir(repo_path):
+        index_log.warning("repo_path not available, skipping indexing")
+        return StageResult(
+            stage=PipelineStage.TASK_DECOMPOSITION,
+            success=True,
+            artifact={"indexed": False, "reason": "no repo_path"},
+            cost_usd=0.0,
+            duration_seconds=0.0,
+        )
+
+    try:
+        from pathlib import Path
+
+        from agents.codebase.embedder import ChunkEmbedder
+        from agents.codebase.indexer import RepoIndexer
+        from agents.codebase.store import CodeChunkStore
+
+        indexer = RepoIndexer(Path(repo_path))
+        embedder = ChunkEmbedder()
+        store = CodeChunkStore()
+
+        # Check for incremental indexing
+        effective_repo_url = repo_url or repo_path
+        last_commit = await store.get_last_commit(
+            org_id=org_id, repo_url=effective_repo_url,
+        )
+        head_sha = await indexer.get_head_sha()
+
+        if last_commit and last_commit == head_sha:
+            index_log.info("index is up to date", commit=head_sha)
+            elapsed = time.monotonic() - start
+            return StageResult(
+                stage=PipelineStage.TASK_DECOMPOSITION,
+                success=True,
+                artifact={"indexed": True, "cached": True, "commit": head_sha},
+                cost_usd=0.0,
+                duration_seconds=round(elapsed, 2),
+            )
+
+        # Full index (or incremental if we have a previous commit)
+        if last_commit:
+            chunks = await indexer.index_incremental(last_commit, head_sha)
+            index_log.info("incremental indexing", new_chunks=len(chunks))
+        else:
+            chunks = await indexer.index()
+            index_log.info("full indexing", chunks=len(chunks))
+
+        # Embed and store
+        if chunks:
+            embedded = await embedder.embed_chunks(chunks)
+            await store.upsert_chunks(
+                embedded,
+                org_id=org_id,
+                repo_url=effective_repo_url,
+                commit_sha=head_sha,
+            )
+
+        # Record index state
+        file_count = len({c.file_path for c in chunks})
+        await store.update_index_state(
+            org_id=org_id,
+            repo_url=effective_repo_url,
+            commit_sha=head_sha,
+            file_count=file_count,
+            chunk_count=len(chunks),
+        )
+
+        await store.close()
+
+        elapsed = time.monotonic() - start
+        index_log.info(
+            "codebase indexing complete",
+            chunks=len(chunks),
+            files=file_count,
+            duration_seconds=round(elapsed, 2),
+        )
+        return StageResult(
+            stage=PipelineStage.TASK_DECOMPOSITION,
+            success=True,
+            artifact={
+                "indexed": True,
+                "chunk_count": len(chunks),
+                "file_count": file_count,
+                "commit": head_sha,
+            },
+            cost_usd=0.0,
+            duration_seconds=round(elapsed, 2),
+        )
+
+    except Exception as exc:
+        elapsed = time.monotonic() - start
+        index_log.error(
+            "codebase indexing failed",
+            error=str(exc),
+            traceback=traceback.format_exc(),
+            duration_seconds=round(elapsed, 2),
+        )
+        # Indexing failure is non-fatal — pipeline continues without codebase context
+        return StageResult(
+            stage=PipelineStage.TASK_DECOMPOSITION,
+            success=True,
+            artifact={"indexed": False, "error": str(exc)[:200]},
+            cost_usd=0.0,
+            duration_seconds=round(elapsed, 2),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Activity registry (for worker registration)
 # ---------------------------------------------------------------------------
 
@@ -2331,4 +2601,5 @@ ALL_ACTIVITIES = [
     store_agent_memory,
     clone_remote_repo,
     push_pipeline_results,
+    run_index_codebase,
 ]

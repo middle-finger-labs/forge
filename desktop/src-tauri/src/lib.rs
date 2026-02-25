@@ -51,6 +51,10 @@ pub fn run() {
         commands::get_connection_status,
         commands::set_push_token,
         commands::get_push_token,
+        commands::proxy_fetch,
+        commands::save_secure_data,
+        commands::get_secure_data,
+        commands::delete_secure_data,
         #[cfg(desktop)]
         commands::open_in_vscode,
         #[cfg(desktop)]

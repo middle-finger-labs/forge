@@ -11,6 +11,7 @@ import { MobileDiffViewer } from "@/components/conversation/MobileDiffViewer";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import {
   Zap,
+  File,
   FileDown,
   Copy,
   MessageSquare,
@@ -481,6 +482,8 @@ function ContentBlock({ block }: { block: MessageContent }) {
       );
     case "pipeline_summary":
       return <PipelineSummaryCard data={block} />;
+    case "code_reference":
+      return <CodeReferenceBlock block={block} />;
   }
 }
 
@@ -549,6 +552,8 @@ function MobileContentBlock({ block }: { block: MessageContent }) {
       );
     case "pipeline_summary":
       return <PipelineSummaryCard data={block} />;
+    case "code_reference":
+      return <CodeReferenceBlock block={block} />;
   }
 }
 
@@ -973,6 +978,76 @@ function DiffBlock({ diff, filename }: { diff: string; filename: string }) {
   );
 }
 
+
+// ─── Code reference block ────────────────────────────────
+
+function CodeReferenceBlock({
+  block,
+}: {
+  block: Extract<MessageContent, { type: "code_reference" }>;
+}) {
+  const lineRange = block.endLine
+    ? `L${block.startLine}-${block.endLine}`
+    : `L${block.startLine}`;
+
+  return (
+    <div className="rounded-lg border border-[var(--forge-border)] overflow-hidden max-w-full">
+      {/* Header with file path and "Open in VS Code" */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--forge-bg)] border-b border-[var(--forge-border)]">
+        <div className="flex items-center gap-2 min-w-0">
+          <File className="w-3.5 h-3.5 text-[var(--forge-text-muted)] shrink-0" />
+          <span className="text-xs text-[var(--forge-accent)] truncate font-mono">
+            {block.filePath}
+          </span>
+          <span className="text-[10px] text-[var(--forge-text-muted)] shrink-0">
+            {lineRange}
+          </span>
+          {block.language && (
+            <span className="text-[10px] text-[var(--forge-text-muted)] uppercase shrink-0">
+              {block.language}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5">
+          <span className="text-[10px] text-[var(--forge-text-muted)] mr-1">
+            {block.repoName}
+          </span>
+          <button
+            onClick={() => {
+              invoke("open_in_vscode", {
+                path: block.filePath,
+                line: block.startLine,
+              }).catch((e) =>
+                console.error("Failed to open in VS Code:", e)
+              );
+            }}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-[var(--forge-accent)]/10 text-[var(--forge-accent)] hover:bg-[var(--forge-accent)]/20 transition-colors"
+            title={`Open ${block.filePath}:${block.startLine} in VS Code`}
+          >
+            <ExternalLink className="w-3 h-3" />
+            Open in VS Code
+          </button>
+        </div>
+      </div>
+
+      {/* Code snippet */}
+      {block.snippet && (
+        <pre className="p-3 bg-[var(--forge-bg)] overflow-x-auto">
+          <code className="text-xs text-[var(--forge-text)] font-mono leading-5">
+            {block.snippet.split("\n").map((line, i) => (
+              <span key={i} className="block">
+                <span className="inline-block w-8 text-right mr-3 text-[var(--forge-text-muted)] select-none">
+                  {block.startLine + i}
+                </span>
+                {line}
+              </span>
+            ))}
+          </code>
+        </pre>
+      )}
+    </div>
+  );
+}
 
 // ─── Approval response ──────────────────────────────────
 

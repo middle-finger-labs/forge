@@ -1,11 +1,13 @@
 import { useState, useMemo } from "react";
-import { Activity, Hash, Plus, Settings, Zap } from "lucide-react";
+import { Activity, Hash, Plus, Settings, Zap, FolderGit2, Loader2 } from "lucide-react";
 import { useConversationStore } from "@/stores/conversationStore";
 import { useLayoutStore } from "@/stores/layoutStore";
+import { useRepoStore } from "@/stores/repoStore";
 import { MOCK_ACTIVITY, type ActivityEvent } from "@/data/mockData";
 import { AGENT_ROLES, AGENT_REGISTRY } from "@/types/agent";
 import type { PipelineRun, PipelineStatus } from "@/types/pipeline";
 import type { AgentStatus } from "@/types/agent";
+import type { IndexingStatus } from "@/types/repository";
 import { cn } from "@/lib/utils";
 
 const STATUS_DOT: Record<AgentStatus, string> = {
@@ -29,14 +31,23 @@ interface SidebarProps {
   pipelineRuns: PipelineRun[];
 }
 
-type SidebarSection = "agents" | "pipelines" | "activity";
+type SidebarSection = "agents" | "pipelines" | "repos" | "activity";
+
+const INDEXING_STATUS_ICON: Record<IndexingStatus, string> = {
+  idle: "\u23F3",
+  cloning: "\u{1F4E5}",
+  indexing: "\u{1F504}",
+  ready: "\u2705",
+  error: "\u274C",
+};
 
 export function Sidebar({ pipelineRuns }: SidebarProps) {
   const { activeConversationId, setActiveConversation, conversations, agents } =
     useConversationStore();
-  const { openNewPipelineModal, openSettings, openActivityFeed, activityFeedOpen, closeActivityFeed, closeSettings } = useLayoutStore();
+  const { openNewPipelineModal, openSettings, openActivityFeed, activityFeedOpen, closeActivityFeed, closeSettings, openIndexRepoModal, openDetailPanel } = useLayoutStore();
+  const { repos, activeRepoId, setActiveRepo } = useRepoStore();
   const [expandedSections, setExpandedSections] = useState<Set<SidebarSection>>(
-    new Set(["agents", "pipelines", "activity"])
+    new Set(["agents", "pipelines", "repos", "activity"])
   );
 
   const toggleSection = (section: SidebarSection) => {
@@ -220,6 +231,76 @@ export function Sidebar({ pipelineRuns }: SidebarProps) {
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {/* Repos */}
+        <SectionHeader
+          label="Repos"
+          expanded={expandedSections.has("repos")}
+          onToggle={() => toggleSection("repos")}
+          action={
+            <button
+              onClick={openIndexRepoModal}
+              className="p-0.5 rounded hover:bg-[var(--forge-hover)] text-[var(--forge-text-muted)] hover:text-white transition-colors"
+              title="Index new repo"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          }
+        />
+        {expandedSections.has("repos") && (
+          <div className="pb-2">
+            {Object.values(repos).map((repo) => (
+              <button
+                key={repo.id}
+                onClick={() => {
+                  setActiveRepo(repo.id);
+                  openDetailPanel("codebase");
+                }}
+                className={cn(
+                  "flex items-center gap-2 w-full px-4 py-[5px] text-sm text-left",
+                  "hover:bg-[var(--forge-hover)] transition-colors",
+                  activeRepoId === repo.id && "bg-[var(--forge-active)] text-white"
+                )}
+              >
+                <FolderGit2 className="w-3.5 h-3.5 shrink-0 text-[var(--forge-text-muted)]" />
+                <div className="min-w-0 flex-1">
+                  <span className="truncate text-[var(--forge-text)] block">{repo.name}</span>
+                  <span className="text-[10px] text-[var(--forge-text-muted)] flex items-center gap-1.5">
+                    {repo.indexingStatus === "indexing" ? (
+                      <>
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        Indexing {repo.indexingProgress ?? 0}%
+                      </>
+                    ) : repo.indexingStatus === "ready" ? (
+                      <>
+                        {repo.chunkCount} chunks
+                        <span className="mx-0.5">·</span>
+                        {repo.languages.slice(0, 2).join(", ")}
+                      </>
+                    ) : (
+                      repo.indexingStatus
+                    )}
+                  </span>
+                </div>
+                <span className="ml-auto flex items-center gap-1 shrink-0">
+                  {repo.indexingStatus === "ready" && repo.lastIndexedAt && (
+                    <span className="text-[10px] text-[var(--forge-text-muted)]">
+                      {formatRelativeTime(repo.lastIndexedAt)}
+                    </span>
+                  )}
+                  <span className="text-xs" title={repo.indexingStatus}>
+                    {INDEXING_STATUS_ICON[repo.indexingStatus]}
+                  </span>
+                </span>
+              </button>
+            ))}
+            {Object.keys(repos).length === 0 && (
+              <div className="px-4 py-2 text-xs text-[var(--forge-text-muted)]">
+                No repos indexed yet
+              </div>
+            )}
           </div>
         )}
 

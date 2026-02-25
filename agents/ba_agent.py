@@ -25,6 +25,7 @@ async def run_ba_agent(
     *,
     model: str | None = None,
     max_retries: int = 3,
+    org_id: str = "",
 ) -> tuple[dict | None, float]:
     """Run the BA agent to produce a ProductSpec.
 
@@ -36,12 +37,25 @@ async def run_ba_agent(
         Optional LLM model override.
     max_retries:
         Maximum validation retry attempts.
+    org_id:
+        Org ID for prompt version resolution.
 
     Returns
     -------
     tuple[dict | None, float]
         (Validated ProductSpec dict or None on failure, cost in USD.)
     """
+
+    # Resolve prompt (org-specific override or default)
+    system_prompt = SYSTEM_PROMPT
+    try:
+        from agents.prompts.evaluation import resolve_stage_prompt
+
+        system_prompt, _ = await resolve_stage_prompt(
+            org_id=org_id, stage=1, default_prompt=SYSTEM_PROMPT,
+        )
+    except Exception as exc:
+        log.debug("prompt resolution skipped", error=str(exc))
 
     # Retrieve relevant memories for context
     memory_context = ""
@@ -58,7 +72,7 @@ async def run_ba_agent(
     human_prompt = HUMAN_PROMPT_TEMPLATE.format(business_spec=business_spec)
 
     return await run_agent(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         human_prompt=human_prompt,
         output_model=ProductSpec,
         model=model,

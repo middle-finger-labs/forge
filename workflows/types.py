@@ -123,6 +123,7 @@ class CodingTaskInput:
     repo_path: str = ""
     reuse_worktree: bool = False
     org_id: str = ""
+    codebase_context: str = ""
 
 
 @dataclass
@@ -149,6 +150,7 @@ class QATaskInput:
     ticket: dict[str, Any] = field(default_factory=dict)
     code_artifact: dict[str, Any] = field(default_factory=dict)
     coding_standards: list[str] = field(default_factory=list)
+    codebase_context: str = ""
 
 
 @dataclass
@@ -183,6 +185,7 @@ class GroupTaskInput:
     repo_path: str = ""
     coding_standards: list[str] = field(default_factory=list)
     org_id: str = ""
+    repo_url: str = ""
 
 
 @dataclass
@@ -196,6 +199,8 @@ class GroupTaskResult:
     total_cost_usd: float = 0.0
     failed_tickets: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
+    communication_cost_usd: float = 0.0
+    agent_exchanges: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

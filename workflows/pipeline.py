@@ -54,6 +54,7 @@ ACT_EXTRACT_LESSONS = "extract_pipeline_lessons"
 ACT_STORE_MEMORY = "store_agent_memory"
 ACT_CLONE_REMOTE_REPO = "clone_remote_repo"
 ACT_PUSH_PIPELINE_RESULTS = "push_pipeline_results"
+ACT_INDEX_CODEBASE = "run_index_codebase"
 
 # ---------------------------------------------------------------------------
 # Task queues
@@ -351,6 +352,10 @@ class ForgePipeline:
                         stage=PipelineStage.TASK_DECOMPOSITION,
                         payload={"repo_path": self.repo_path},
                     )
+
+                    # Stage 4b.1 — Index the codebase (best-effort, non-blocking)
+                    if self.repo_path:
+                        await self._index_codebase(input)
 
                     # Stage 4c — Validate & optimise execution order
                     await self._validate_execution_order()
@@ -750,6 +755,56 @@ class ForgePipeline:
         )
 
     # -----------------------------------------------------------------------
+    # Codebase indexing (Stage 4b.1)
+    # -----------------------------------------------------------------------
+
+    async def _index_codebase(self, input: PipelineInput) -> None:
+        """Index the codebase for semantic search (best-effort).
+
+        Failures are logged but never block the pipeline — agents simply
+        proceed without codebase context.
+        """
+        await self._emit_event(
+            "indexing.started",
+            stage=PipelineStage.TASK_DECOMPOSITION,
+        )
+        try:
+            result: StageResult = await workflow.execute_activity(
+                ACT_INDEX_CODEBASE,
+                {
+                    "pipeline_id": self.pipeline_id,
+                    "org_id": self.org_id,
+                    "repo_url": input.repo_url or self.repo_path,
+                    "repo_path": self.repo_path,
+                },
+                result_type=StageResult,
+                task_queue=PIPELINE_QUEUE,
+                schedule_to_close_timeout=timedelta(seconds=300),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            artifact = result.artifact or {}
+            await self._emit_event(
+                "indexing.completed",
+                stage=PipelineStage.TASK_DECOMPOSITION,
+                payload={
+                    "indexed": artifact.get("indexed", False),
+                    "chunk_count": artifact.get("chunk_count", 0),
+                    "file_count": artifact.get("file_count", 0),
+                },
+            )
+        except Exception:
+            # Best-effort: indexing failure is non-fatal
+            workflow.logger.warning(
+                "Codebase indexing failed for pipeline %s — agents will "
+                "proceed without codebase context",
+                self.pipeline_id,
+            )
+            await self._emit_event(
+                "indexing.failed",
+                stage=PipelineStage.TASK_DECOMPOSITION,
+            )
+
+    # -----------------------------------------------------------------------
     # Coding swarm (Stage 5 + 6 + 7 per group)
     # -----------------------------------------------------------------------
 
@@ -821,6 +876,7 @@ class ForgePipeline:
                 repo_path=self.repo_path,
                 coding_standards=coding_standards,
                 org_id=self.org_id,
+                repo_url=input.repo_url or self.repo_path,
             )
 
             # Each group runs as a single activity: coding + QA + merge.

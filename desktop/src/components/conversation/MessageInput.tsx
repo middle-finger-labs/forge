@@ -12,7 +12,8 @@ import type { MessageContent } from "@/types/message";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { useHaptics } from "@/hooks/useHaptics";
 import { useOfflineStore } from "@/stores/offlineStore";
-import { Paperclip, Send, Slash, Plus, WifiOff } from "lucide-react";
+import { useRepoStore } from "@/stores/repoStore";
+import { Paperclip, Send, Slash, Plus, WifiOff, FolderGit2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Slash commands ─────────────────────────────────────
@@ -91,6 +92,7 @@ export function MessageInput({
   const [text, setText] = useState("");
   const [showSlash, setShowSlash] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
+  const [showRepoSelector, setShowRepoSelector] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
   const [mentionFilter, setMentionFilter] = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -98,6 +100,10 @@ export function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+
+  // Repo context
+  const { repos, activeRepoId, setActiveRepo, clearActiveRepo } = useRepoStore();
+  const activeRepo = activeRepoId ? repos[activeRepoId] : undefined;
 
   // Max textarea height: 4 lines on mobile (~96px), 200px on desktop
   const maxTextareaHeight = isMobile ? 96 : 200;
@@ -412,6 +418,8 @@ export function MessageInput({
   }
 
   // ── Desktop layout (existing) ──
+  const readyRepos = Object.values(repos).filter((r) => r.indexingStatus === "ready");
+
   return (
     <div className="px-4 pb-4 pt-2 shrink-0">
       {/* Typing indicator */}
@@ -421,6 +429,28 @@ export function MessageInput({
           <span className="text-xs text-[var(--forge-text-muted)]">
             {formatTypingUsers(typingUsers)}
           </span>
+        </div>
+      )}
+
+      {/* Repo context chip */}
+      {activeRepo && (
+        <div className="flex items-center gap-2 mb-1.5 px-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--forge-accent)]/10 border border-[var(--forge-accent)]/20 text-xs">
+            <FolderGit2 className="w-3 h-3 text-[var(--forge-accent)]" />
+            <span className="text-[var(--forge-accent)] font-medium">{activeRepo.name}</span>
+            {activeRepo.lastIndexedAt && (
+              <span className="text-[var(--forge-text-muted)]">
+                (indexed {formatRepoAge(activeRepo.lastIndexedAt)})
+              </span>
+            )}
+            <button
+              onClick={clearActiveRepo}
+              className="p-0.5 rounded-full hover:bg-[var(--forge-hover)] text-[var(--forge-text-muted)] hover:text-white transition-colors"
+              title="Remove repo context"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -447,6 +477,20 @@ export function MessageInput({
             setShowMentions(false);
             textareaRef.current?.focus();
           }}
+        />
+      )}
+
+      {/* Repo selector popup */}
+      {showRepoSelector && readyRepos.length > 0 && (
+        <RepoSelectorPopup
+          repos={readyRepos}
+          activeRepoId={activeRepoId}
+          onSelect={(repoId) => {
+            setActiveRepo(repoId);
+            setShowRepoSelector(false);
+            textareaRef.current?.focus();
+          }}
+          onClose={() => setShowRepoSelector(false)}
         />
       )}
 
@@ -479,6 +523,20 @@ export function MessageInput({
             <Paperclip className="w-4 h-4" />
           </button>
 
+          {/* Repo context button */}
+          <button
+            onClick={() => setShowRepoSelector(!showRepoSelector)}
+            className={cn(
+              "p-1 rounded transition-colors shrink-0 mb-0.5",
+              activeRepoId
+                ? "text-[var(--forge-accent)] hover:bg-[var(--forge-accent)]/10"
+                : "text-[var(--forge-text-muted)] hover:bg-[var(--forge-hover)] hover:text-white"
+            )}
+            title={activeRepo ? `Context: ${activeRepo.name}` : "Select repo context"}
+          >
+            <FolderGit2 className="w-4 h-4" />
+          </button>
+
           {/* Textarea */}
           <textarea
             ref={textareaRef}
@@ -486,7 +544,12 @@ export function MessageInput({
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder={customPlaceholder ?? `Message ${conversationTitle}...`}
+            placeholder={
+              customPlaceholder ??
+              (activeRepo
+                ? `Ask about ${activeRepo.name}...`
+                : `Message ${conversationTitle}...`)
+            }
             rows={1}
             className={cn(
               "flex-1 bg-transparent text-sm text-[var(--forge-text)] resize-none outline-none",
@@ -676,7 +739,75 @@ function TypingDots() {
   );
 }
 
+// ─── Repo selector popup ─────────────────────────────────
+
+function RepoSelectorPopup({
+  repos,
+  activeRepoId,
+  onSelect,
+  onClose,
+}: {
+  repos: Array<{ id: string; name: string; chunkCount: number; languages: string[]; lastIndexedAt?: string }>;
+  activeRepoId: string | null;
+  onSelect: (repoId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mb-1 rounded-lg border border-[var(--forge-border)] bg-[var(--forge-bg)] shadow-xl overflow-hidden">
+      <div className="px-3 py-1.5 border-b border-[var(--forge-border)] flex items-center justify-between">
+        <span className="text-[10px] font-medium text-[var(--forge-text-muted)] uppercase tracking-wider">
+          Select repo context
+        </span>
+        {activeRepoId && (
+          <button
+            onClick={() => {
+              onClose();
+            }}
+            className="text-[10px] text-[var(--forge-text-muted)] hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+      {repos.map((repo) => (
+        <button
+          key={repo.id}
+          onClick={() => onSelect(repo.id)}
+          className={cn(
+            "w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors text-left",
+            repo.id === activeRepoId
+              ? "bg-[var(--forge-accent)]/10 text-white"
+              : "hover:bg-[var(--forge-hover)] text-[var(--forge-text)]"
+          )}
+        >
+          <FolderGit2 className="w-4 h-4 text-[var(--forge-text-muted)] shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="font-medium">{repo.name}</span>
+            <span className="text-[10px] text-[var(--forge-text-muted)] ml-2">
+              {repo.chunkCount} chunks · {repo.languages.slice(0, 2).join(", ")}
+            </span>
+          </div>
+          {repo.id === activeRepoId && (
+            <span className="text-[10px] text-[var(--forge-accent)] shrink-0">Active</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Helpers ────────────────────────────────────────────
+
+function formatRepoAge(timestamp: string): string {
+  const diff = Date.now() - new Date(timestamp).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 function formatTypingUsers(users: string[]): string {
   if (users.length === 1) return `${users[0]} is typing...`;

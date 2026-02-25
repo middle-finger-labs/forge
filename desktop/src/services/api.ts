@@ -14,10 +14,32 @@ import type {
   UpdateLessonRequest,
   PipelineSummary,
 } from "@/types/prompts";
+import type {
+  Repository,
+  FileNode,
+  RepoChunk,
+  RepoSearchResult,
+  DependencyEdge,
+} from "@/types/repository";
 
 export interface PaginatedMessages {
   messages: Message[];
   nextCursor?: string;
+}
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  joined_at: string | null;
+}
+
+export interface PendingInvite {
+  email: string;
+  invited_by: string | null;
+  created_at: string | null;
+  expires_at: string | null;
 }
 
 export interface CreatePipelineRequest {
@@ -259,6 +281,84 @@ export class ForgeAPI {
     return this.request<PipelineSummary>(
       `/api/pipelines/${pipelineId}/summary`
     );
+  }
+
+  // ─── Repositories ─────────────────────────────────────
+
+  async getRepos(): Promise<Repository[]> {
+    return this.request<Repository[]>("/api/repos");
+  }
+
+  async indexRepo(source: string, sourceType: "git" | "local"): Promise<Repository> {
+    return this.request<Repository>("/api/repos", {
+      method: "POST",
+      body: JSON.stringify({ source, source_type: sourceType }),
+    });
+  }
+
+  async reindexRepo(repoId: string): Promise<Repository> {
+    return this.request<Repository>(`/api/repos/${repoId}/reindex`, {
+      method: "POST",
+    });
+  }
+
+  async deleteRepo(repoId: string): Promise<void> {
+    return this.request<void>(`/api/repos/${repoId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getRepoFileTree(repoId: string): Promise<FileNode[]> {
+    return this.request<FileNode[]>(`/api/repos/${repoId}/tree`);
+  }
+
+  async getRepoFileChunks(repoId: string, filePath: string): Promise<RepoChunk[]> {
+    return this.request<RepoChunk[]>(
+      `/api/repos/${repoId}/chunks?path=${encodeURIComponent(filePath)}`
+    );
+  }
+
+  async searchRepo(repoId: string, query: string): Promise<RepoSearchResult[]> {
+    return this.request<RepoSearchResult[]>(
+      `/api/repos/${repoId}/search`,
+      {
+        method: "POST",
+        body: JSON.stringify({ query }),
+      }
+    );
+  }
+
+  async getRepoDependencies(repoId: string): Promise<DependencyEdge[]> {
+    return this.request<DependencyEdge[]>(`/api/repos/${repoId}/dependencies`);
+  }
+
+  // ─── Team ────────────────────────────────────────────
+
+  async getTeamMembers(): Promise<TeamMember[]> {
+    return this.request<TeamMember[]>("/api/auth/team/members");
+  }
+
+  async getPendingInvites(): Promise<PendingInvite[]> {
+    return this.request<PendingInvite[]>("/api/auth/team/invites");
+  }
+
+  async sendInvite(email: string, role: string = "member"): Promise<{ message: string; email: string }> {
+    return this.request<{ message: string; email: string }>("/api/auth/invite", {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    });
+  }
+
+  /** Send a message to an agent with codebase context */
+  async sendAgentMessageWithContext(
+    agentRole: AgentRole,
+    message: string,
+    repoId: string
+  ): Promise<Message> {
+    return this.request<Message>(`/api/agents/${agentRole}/message`, {
+      method: "POST",
+      body: JSON.stringify({ message, repo_id: repoId }),
+    });
   }
 }
 

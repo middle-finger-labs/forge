@@ -110,6 +110,11 @@ Check for these specific vulnerabilities:
    require caching and the engineer didn't add caching, that is correct — \
    not a deficiency.
 
+# Team Communication
+You may receive an <engineer_clarification> section with the engineer's \
+explanation of their implementation decisions. Consider this context when \
+evaluating whether behavior is intentional vs. a bug.
+
 # Output Format
 Return ONLY the JSON object. No markdown fences, no commentary, no preamble.\
 """
