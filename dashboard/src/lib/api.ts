@@ -345,8 +345,9 @@ export interface OrgIdentity {
   created_at: string
 }
 
-export function listIdentities(): Promise<OrgIdentity[]> {
-  return request('/api/identities')
+export async function listIdentities(): Promise<OrgIdentity[]> {
+  const data = await request<{ identities: OrgIdentity[] }>('/api/identities')
+  return data.identities
 }
 
 export function createIdentity(body: {
