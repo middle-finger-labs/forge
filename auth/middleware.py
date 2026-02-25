@@ -220,7 +220,7 @@ async def _validate_session(token: str) -> ForgeUser:
             log.warning("could not fetch org details, using defaults")
     else:
         # No active org on session — look up the user's org memberships
-        # and use the first one as a default.
+        # and use the first one as a default for this request.
         try:
             orgs_resp = await client.get(
                 f"{FORGE_AUTH_URL}/api/auth/organization/list",
@@ -232,20 +232,7 @@ async def _validate_session(token: str) -> ForgeUser:
                     first_org = orgs[0]
                     org_id = first_org.get("id", "")
                     org_slug = first_org.get("slug", "")
-                    # Try to set as active org so subsequent requests work
-                    try:
-                        await client.post(
-                            f"{FORGE_AUTH_URL}/api/auth/organization/set-active",
-                            headers={
-                                **headers,
-                                "Content-Type": "application/json",
-                                "Origin": FORGE_AUTH_URL,
-                            },
-                            json={"organizationId": org_id},
-                        )
-                    except httpx.RequestError:
-                        pass
-                    # Fetch full org to get role
+                    # Fetch full org to get the user's role
                     try:
                         org_resp = await client.get(
                             f"{FORGE_AUTH_URL}/api/auth/organization/get-full-organization",
@@ -256,11 +243,12 @@ async def _validate_session(token: str) -> ForgeUser:
                         )
                         if org_resp.status_code == 200:
                             org_data = org_resp.json()
-                            org_slug = org_data.get("slug", org_slug)
-                            for member in org_data.get("members", []):
-                                if member.get("userId") == user_id:
-                                    role = member.get("role", "member")
-                                    break
+                            if org_data:
+                                org_slug = org_data.get("slug", org_slug)
+                                for member in org_data.get("members", []):
+                                    if member.get("userId") == user_id:
+                                        role = member.get("role", "member")
+                                        break
                     except httpx.RequestError:
                         pass
         except httpx.RequestError:
