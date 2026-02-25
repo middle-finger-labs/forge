@@ -23,7 +23,8 @@ export default function LoginPage() {
       if (result.error) {
         setError(result.error.message ?? 'Invalid credentials')
       } else {
-        navigate('/')
+        // Full reload so useSession() fetches a fresh session
+        window.location.href = '/'
       }
     } catch {
       setError('Unable to connect to auth service')
