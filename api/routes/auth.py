@@ -1,15 +1,19 @@
 """Magic link authentication routes.
 
 Provides passwordless auth via email magic links and org invitations.
+Proxies token generation and session creation through Better Auth's
+magicLink plugin while keeping custom rate limiting, cooldowns, status
+polling, and org invite logic in Python.
 """
 
 from __future__ import annotations
 
 import os
-import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
@@ -26,6 +30,7 @@ auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ---------------------------------------------------------------------------
 
 SERVER_PUBLIC_URL = os.environ.get("FORGE_PUBLIC_URL", "http://localhost:8000")
+AUTH_SERVICE_URL = os.environ.get("AUTH_SERVICE_URL", "http://forge-auth:3100")
 MAGIC_LINK_TTL_MINUTES = 15
 MAGIC_LINK_RATE_LIMIT = 3  # max links per email per TTL window
 RESEND_COOLDOWN_SECONDS = 60  # minimum seconds between magic links for same email
@@ -78,32 +83,61 @@ async def _check_resend_cooldown(pool: asyncpg.Pool, email: str) -> int | None:
     return None
 
 
-async def _create_magic_link(
+async def _create_pending_magic_link(
     pool: asyncpg.Pool,
     *,
     email: str,
     purpose: str,
     org_id: str | None = None,
     invite_by: str | None = None,
-) -> str:
-    """Create a magic link record and return the token."""
-    token = secrets.token_urlsafe(48)
+) -> None:
+    """Create a magic_links record with a __pending__ placeholder token.
+
+    BA's sendMagicLink callback will update this record with the real
+    token via the internal endpoint.
+    """
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=MAGIC_LINK_TTL_MINUTES)
 
     await pool.execute(
         """
         INSERT INTO magic_links (email, token, server_url, org_id, invite_by, purpose, expires_at)
-        VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         """,
         email.lower(),
-        token,
+        "__pending__",
         SERVER_PUBLIC_URL,
         org_id,
         invite_by,
         purpose,
         expires_at,
     )
-    return token
+
+
+async def _request_ba_magic_link(email: str) -> bool:
+    """Ask Better Auth to generate a magic link token for the given email.
+
+    BA will call our internal endpoint (sendMagicLink callback) to
+    deliver the token and trigger email sending.
+
+    Returns True on success, False on failure.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{AUTH_SERVICE_URL}/api/auth/sign-in/magic-link",
+                json={"email": email},
+            )
+            if resp.status_code == 200:
+                return True
+            log.warning(
+                "BA magic-link request failed",
+                status=resp.status_code,
+                body=resp.text[:200],
+            )
+            return False
+    except httpx.RequestError as exc:
+        log.error("BA magic-link request error", error=str(exc))
+        return False
 
 
 def _build_links(token: str) -> tuple[str, str]:
@@ -230,18 +264,16 @@ async def request_magic_link(body: MagicLinkRequest, request: Request):
 
     org_id = member_row["org_id"] if member_row else None
 
-    token = await _create_magic_link(
+    # Create a pending record — BA's callback will fill in the real token
+    await _create_pending_magic_link(
         pool,
         email=email,
         purpose="login",
         org_id=org_id,
     )
 
-    try:
-        await _send_magic_email(to=email, purpose="login", token=token)
-    except Exception as exc:
-        log.error("failed to send magic link email", email=email, error=str(exc))
-        # Don't expose email delivery errors to client
+    # Ask BA to generate a token and trigger email via callback
+    await _request_ba_magic_link(email)
 
     return {"message": "If that email is registered, check your inbox."}
 
@@ -253,14 +285,15 @@ async def request_magic_link(body: MagicLinkRequest, request: Request):
 
 @auth_router.post("/magic-link/verify")
 async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
-    """Verify a magic link token, create a session, and return auth data.
+    """Verify a magic link token, create a session via BA, and return auth data.
 
     This is called by the desktop app after the user taps the magic link.
+    BA handles session creation; we handle org membership and enrichment.
     """
     pool = _get_db(request)
     now = datetime.now(timezone.utc)
 
-    # Find the magic link
+    # Find the magic link in our table
     row = await pool.fetchrow(
         """
         SELECT id, email, token, server_url, org_id, invite_by, purpose, expires_at, used_at
@@ -281,7 +314,6 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
     if row["used_at"] is not None:
         consumed_ago = (now - row["used_at"]).total_seconds()
         if consumed_ago <= 300:
-            # Find the existing session for this user
             email = row["email"]
             user_row = await pool.fetchrow(
                 "SELECT id, email, name FROM \"user\" WHERE LOWER(email) = $1",
@@ -331,7 +363,33 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
                     }
         raise HTTPException(status_code=400, detail="This link has already been used")
 
-    # Mark as used
+    # -----------------------------------------------------------------------
+    # Verify token via Better Auth — this creates the session and
+    # (if disableSignUp=false) the user automatically.
+    # -----------------------------------------------------------------------
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            ba_resp = await client.get(
+                f"{AUTH_SERVICE_URL}/api/auth/magic-link/verify",
+                params={"token": body.token},
+            )
+    except httpx.RequestError as exc:
+        log.error("BA verify request failed", error=str(exc))
+        raise HTTPException(status_code=502, detail="Auth service unavailable")
+
+    if ba_resp.status_code != 200:
+        log.warning("BA verify returned error", status=ba_resp.status_code, body=ba_resp.text[:200])
+        raise HTTPException(status_code=400, detail="Invalid or expired link")
+
+    ba_data = ba_resp.json()
+    session_token = ba_data.get("token") or ba_data.get("session", {}).get("token")
+    ba_user = ba_data.get("user", {})
+
+    if not session_token:
+        log.error("BA verify response missing session token", data=ba_data)
+        raise HTTPException(status_code=502, detail="Auth service returned invalid response")
+
+    # Mark our magic_links record as used
     await pool.execute(
         "UPDATE magic_links SET used_at = $1 WHERE id = $2",
         now,
@@ -340,36 +398,32 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
 
     email = row["email"]
     purpose = row["purpose"]
+    user_id = ba_user.get("id")
     is_new_user = False
 
-    # Look up or create user
+    # Fetch the user from DB (BA may have just created them)
     user_row = await pool.fetchrow(
-        "SELECT id, email, name FROM \"user\" WHERE LOWER(email) = $1",
-        email.lower(),
+        "SELECT id, email, name, \"createdAt\" FROM \"user\" WHERE id = $1",
+        user_id,
     )
 
+    if user_row is None:
+        # Fallback: look up by email
+        user_row = await pool.fetchrow(
+            "SELECT id, email, name, \"createdAt\" FROM \"user\" WHERE LOWER(email) = $1",
+            email.lower(),
+        )
+
+    if user_row is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired link")
+
+    # Check if user was just created (within last 30 seconds)
+    if user_row["createdAt"] and (now - user_row["createdAt"]).total_seconds() < 30:
+        is_new_user = True
+
+    # Handle invite: add user to org if not already a member
     if purpose == "invite":
         org_id = str(row["org_id"]) if row["org_id"] else None
-
-        if user_row is None:
-            # Create new user via Better Auth's user table
-            import uuid
-            new_user_id = str(uuid.uuid4())
-            name = email.split("@")[0]
-            await pool.execute(
-                """
-                INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
-                VALUES ($1, $2, $3, true, $4, $4)
-                """,
-                new_user_id,
-                email,
-                name,
-                now,
-            )
-            user_row = {"id": new_user_id, "email": email, "name": name}
-            is_new_user = True
-
-        # Add to org if not already a member
         if org_id:
             existing_member = await pool.fetchval(
                 """
@@ -380,7 +434,6 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
                 org_id,
             )
             if not existing_member:
-                import uuid
                 await pool.execute(
                     """
                     INSERT INTO "member" (id, "userId", "organizationId", role, "createdAt")
@@ -392,32 +445,8 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
                     "member",
                     now,
                 )
-    elif user_row is None:
-        # Login purpose but user doesn't exist (shouldn't happen since we
-        # only create login links for existing users, but handle gracefully)
-        raise HTTPException(status_code=400, detail="Invalid or expired link")
 
-    # Create a session (Better Auth session table)
-    import uuid
-    session_token = secrets.token_urlsafe(48)
-    session_id = str(uuid.uuid4())
-    session_expires = now + timedelta(days=7)
-
-    await pool.execute(
-        """
-        INSERT INTO "session" (id, "userId", token, "expiresAt", "createdAt", "updatedAt",
-                               "activeOrganizationId")
-        VALUES ($1, $2, $3, $4, $5, $5, $6)
-        """,
-        session_id,
-        user_row["id"],
-        session_token,
-        session_expires,
-        now,
-        str(row["org_id"]) if row["org_id"] else None,
-    )
-
-    # Fetch org details
+    # Resolve org context
     org_data = None
     org_id = str(row["org_id"]) if row["org_id"] else None
     if not org_id:
@@ -439,12 +468,6 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
                 "name": member_row["org_name"],
                 "slug": member_row["slug"],
             }
-            # Update session with org
-            await pool.execute(
-                "UPDATE \"session\" SET \"activeOrganizationId\" = $1 WHERE id = $2",
-                org_id,
-                session_id,
-            )
     else:
         org_row = await pool.fetchrow(
             "SELECT id, name, slug FROM \"organization\" WHERE id = $1",
@@ -452,6 +475,18 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
         )
         if org_row:
             org_data = dict(org_row)
+
+    # Set active org on the session via BA
+    if org_id:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{AUTH_SERVICE_URL}/api/auth/organization/set-active",
+                    json={"organizationId": org_id},
+                    headers={"Authorization": f"Bearer {session_token}"},
+                )
+        except httpx.RequestError:
+            log.warning("failed to set active org on BA session")
 
     # Get user's role in org
     role = "member"
@@ -500,14 +535,9 @@ async def send_invite(
     if await _check_rate_limit(pool, email):
         raise HTTPException(status_code=429, detail="Too many invites sent to this email")
 
-    # Get org name for the email
-    org_row = await pool.fetchrow(
-        "SELECT name FROM \"organization\" WHERE id = $1",
-        user.org_id,
-    )
-    org_name = org_row["name"] if org_row else None
-
-    token = await _create_magic_link(
+    # Create a pending record with invite context — BA's callback will
+    # update with the real token and send an invite-flavored email.
+    await _create_pending_magic_link(
         pool,
         email=email,
         purpose="invite",
@@ -515,23 +545,16 @@ async def send_invite(
         invite_by=user.user_id,
     )
 
-    try:
-        await _send_magic_email(
-            to=email,
-            purpose="invite",
-            token=token,
-            inviter_name=user.name,
-            org_name=org_name,
-        )
-    except Exception as exc:
-        log.error("failed to send invite email", email=email, error=str(exc))
+    # Ask BA to generate a token — callback sends the email
+    success = await _request_ba_magic_link(email)
+    if not success:
+        log.error("BA failed to generate invite magic link", email=email)
         raise HTTPException(status_code=500, detail="Failed to send invitation email")
 
     log.info("invite sent", email=email, org_id=user.org_id, invited_by=user.user_id)
 
     return {
         "message": "Invite sent",
-        "invite_id": token[:8] + "...",
         "email": email,
     }
 

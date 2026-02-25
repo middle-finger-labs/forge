@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth";
-import { organization, bearer } from "better-auth/plugins";
+import { organization, bearer, magicLink } from "better-auth/plugins";
 import { Pool } from "pg";
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,35 @@ export const auth = betterAuth({
   plugins: [
     organization(),
     bearer(),
+    magicLink({
+      expiresIn: 900, // 15 minutes
+      disableSignUp: false, // invites can create new users
+      rateLimit: {
+        window: 60,
+        max: 10, // generous — Python enforces the real 3/15min limit
+      },
+      sendMagicLink: async ({ email, token, url }) => {
+        const internalUrl =
+          process.env.FORGE_API_INTERNAL_URL ?? "http://forge-api:8000";
+        const secret = process.env.INTERNAL_API_SECRET ?? "";
+        try {
+          await fetch(
+            `${internalUrl}/api/internal/send-magic-email`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Internal-Secret": secret,
+              },
+              body: JSON.stringify({ email, token, url }),
+            },
+          );
+        } catch {
+          // Swallow errors — matches existing behavior where email
+          // failures don't surface to the caller.
+        }
+      },
+    }),
   ],
 
   trustedOrigins: [

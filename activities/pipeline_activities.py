@@ -225,6 +225,7 @@ async def run_business_analysis(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+                org_id=org_id,
             )
             await _record_prompt_eval(
                 org_id=org_id, pipeline_id=pipeline_id, stage=1,
@@ -323,6 +324,7 @@ async def run_research(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+                org_id=org_id,
             )
             await _record_prompt_eval(
                 org_id=org_id, pipeline_id=pipeline_id, stage=2,
@@ -420,6 +422,7 @@ async def run_architecture(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+                org_id=org_id,
             )
             await _record_prompt_eval(
                 org_id=org_id, pipeline_id=pipeline_id, stage=3,
@@ -522,6 +525,7 @@ async def run_task_decomposition(input: dict) -> StageResult:
                 result,
                 cost,
                 pipeline_log,
+                org_id=org_id,
             )
             await _record_prompt_eval(
                 org_id=org_id, pipeline_id=pipeline_id, stage=4,
@@ -1441,6 +1445,8 @@ async def _persist_stage(
     artifact: dict,
     cost: float,
     pipeline_log: structlog.BoundLogger,
+    *,
+    org_id: str = "",
 ) -> None:
     """Persist a stage artifact and cost delta to PostgreSQL."""
     if not pipeline_id:
@@ -1452,6 +1458,24 @@ async def _persist_stage(
             await store.update_cost(pipeline_id, cost)
     except Exception as exc:
         pipeline_log.warning("state persistence failed", error=str(exc))
+
+    # Run connection hooks for stage completion — best effort
+    await _run_connection_hook(
+        "on_stage_complete", pipeline_id, org_id, stage, artifact,
+    )
+
+
+async def _run_connection_hook(method: str, *args) -> None:
+    """Call a ConnectionPipelineHooks method, swallowing all errors."""
+    try:
+        from connections.pipeline_hooks import get_pipeline_hooks
+
+        hooks = get_pipeline_hooks()
+        coro = getattr(hooks, method)(*args)
+        await coro
+    except Exception:
+        # Best-effort — never block the pipeline
+        pass
 
 
 async def _persist_ticket_start(
@@ -1563,12 +1587,19 @@ async def initialize_pipeline_state(input: dict) -> None:
         # Best-effort: log but don't fail the pipeline
         init_log.warning("failed to initialise pipeline state", error=str(exc))
 
+    # Run connection hooks — best effort
+    await _run_connection_hook(
+        "on_pipeline_start", pipeline_id,
+        input.get("org_id", ""), business_spec,
+    )
+
 
 @activity.defn(name="finalize_pipeline_state")
 async def finalize_pipeline_state(input: dict) -> None:
     """Update the pipeline status to its terminal state in PostgreSQL."""
     pipeline_id = input.get("pipeline_id", "")
     status = input.get("status", "completed")
+    org_id = input.get("org_id", "")
 
     final_log = log.bind(activity="finalize_pipeline_state", pipeline_id=pipeline_id)
     final_log.info("finalising pipeline state", status=status)
@@ -1579,6 +1610,18 @@ async def finalize_pipeline_state(input: dict) -> None:
         final_log.info("pipeline state finalised", status=status)
     except Exception as exc:
         final_log.warning("failed to finalise pipeline state", error=str(exc))
+
+    # Run connection hooks — best effort
+    if status == "completed":
+        await _run_connection_hook(
+            "on_pipeline_complete", pipeline_id, org_id,
+            input.get("result", {}),
+        )
+    elif status in ("failed", "errored"):
+        await _run_connection_hook(
+            "on_pipeline_failure", pipeline_id, org_id,
+            input.get("error", {}),
+        )
 
 
 # ---------------------------------------------------------------------------

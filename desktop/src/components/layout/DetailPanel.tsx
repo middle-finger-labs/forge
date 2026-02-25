@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { X, GitBranch, FileText, User, Settings, Code2 } from "lucide-react";
+import { X, GitBranch, FileText, User, Settings, Code2, Plug } from "lucide-react";
 import { useLayoutStore } from "@/stores/layoutStore";
 import { useConversationStore } from "@/stores/conversationStore";
 import type { AgentRole } from "@/types/agent";
@@ -8,6 +8,7 @@ import { AgentProfile } from "@/components/agents/AgentProfile";
 import { DAGMinimap } from "@/components/pipeline/DAGMinimap";
 import { CostTracker } from "@/components/pipeline/CostTracker";
 import { CodebaseExplorer } from "@/components/codebase/CodebaseExplorer";
+import { ConnectionActivity } from "@/components/pipeline/ConnectionActivity";
 import type { QuickAction } from "@/hooks/useAgentChat";
 import { useAgentChat } from "@/hooks/useAgentChat";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ const TABS: { id: DetailPanelContent; label: string; icon: typeof GitBranch }[] 
   { id: "dag", label: "Pipeline", icon: GitBranch },
   { id: "files", label: "Files", icon: FileText },
   { id: "codebase", label: "Code", icon: Code2 },
+  { id: "activity", label: "Activity", icon: Plug },
   { id: "agent-profile", label: "Agent", icon: User },
   { id: "settings", label: "Settings", icon: Settings },
 ];
@@ -136,6 +138,15 @@ export function DetailPanel({ pipelineRuns }: DetailPanelProps) {
           <div className="-m-3 h-[calc(100%+24px)]">
             <CodebaseExplorer />
           </div>
+        )}
+        {activeTab === "activity" && (
+          pipelineRun ? (
+            <ConnectionActivity pipelineId={pipelineRun.id} />
+          ) : (
+            <div className="text-sm text-[var(--forge-text-muted)]">
+              <p>No pipeline selected.</p>
+            </div>
+          )
         )}
         {activeTab === "settings" && (
           <div className="text-sm text-[var(--forge-text-muted)]">

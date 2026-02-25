@@ -118,6 +118,20 @@ Include:
 7. **Every ticket must reference at least one user story** via \
    `user_story_refs`, unless it is a pure infrastructure ticket.
 
+# Connected Services (when available)
+If external tools are provided below, use them for project management:
+- **Create Linear/Jira tickets** from the task breakdown. Each FORGE-N ticket \
+  should have a corresponding issue in the project tracker with matching title, \
+  description, and acceptance criteria.
+- **Update ticket statuses** as the pipeline progresses. Link tickets to the \
+  pipeline for traceability.
+- **Check existing Linear/Jira issues** before creating new ones. Avoid \
+  duplicating tickets that already exist for the same work.
+- **Reference Notion docs** for project conventions, sprint planning notes, \
+  and team capacity information.
+
+If no external tools are provided, produce the PRDBoard without external sync.
+
 # Output Format
 Return ONLY the JSON object. No markdown fences, no commentary, no preamble.\
 """

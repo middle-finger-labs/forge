@@ -110,6 +110,21 @@ Check for these specific vulnerabilities:
    require caching and the engineer didn't add caching, that is correct — \
    not a deficiency.
 
+# Connected Services (when available)
+If external tools are provided below, use them to strengthen your review:
+- **Reference Figma designs** to verify visual correctness. Compare the \
+  implementation against design specs for layout, spacing, and interaction \
+  patterns.
+- **Check Notion** for test requirements, QA checklists, and acceptance \
+  criteria documentation that supplements the ticket.
+- **Create bug tickets in Linear/Jira** for critical or error-severity \
+  findings. Include file path, line number, and reproduction steps. Link \
+  back to the pipeline ticket.
+- **Search for related issues** in Linear/Jira to check if a bug has been \
+  reported before or if there are known workarounds.
+
+If no external tools are provided, review based on the provided code alone.
+
 # Team Communication
 You may receive an <engineer_clarification> section with the engineer's \
 explanation of their implementation decisions. Consider this context when \

@@ -21,6 +21,16 @@ import type {
   RepoSearchResult,
   DependencyEdge,
 } from "@/types/repository";
+import type {
+  MCPConnection,
+  ServicePreset,
+  TestConnectionResult,
+  SetupGuide,
+  OAuthStartResult,
+  ToolWithPermission,
+  AutomationConfig,
+  ConnectionToolCall,
+} from "@/types/connection";
 
 export interface PaginatedMessages {
   messages: Message[];
@@ -346,6 +356,101 @@ export class ForgeAPI {
     return this.request<{ message: string; email: string }>("/api/auth/invite", {
       method: "POST",
       body: JSON.stringify({ email, role }),
+    });
+  }
+
+  // ─── MCP Connections ────────────────────────────────
+
+  async getConnections(): Promise<MCPConnection[]> {
+    return this.request<MCPConnection[]>("/api/connections");
+  }
+
+  async getConnection(id: string): Promise<MCPConnection> {
+    return this.request<MCPConnection>(`/api/connections/${id}`);
+  }
+
+  async createConnection(data: {
+    service: string;
+    display_name: string;
+    transport?: string;
+    server_url?: string;
+    credentials?: string;
+    default_permission?: string;
+    agent_permissions?: Record<string, string>;
+  }): Promise<MCPConnection> {
+    return this.request<MCPConnection>("/api/connections", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateConnection(id: string, data: Record<string, unknown>): Promise<MCPConnection> {
+    return this.request<MCPConnection>(`/api/connections/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteConnection(id: string): Promise<void> {
+    return this.request<void>(`/api/connections/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  async testConnection(id: string): Promise<TestConnectionResult> {
+    return this.request<TestConnectionResult>(`/api/connections/${id}/test`, {
+      method: "POST",
+    });
+  }
+
+  async discoverTools(id: string): Promise<MCPConnection> {
+    return this.request<MCPConnection>(`/api/connections/${id}/discover`, {
+      method: "POST",
+    });
+  }
+
+  async updateConnectionPermissions(id: string, data: {
+    default_permission?: string;
+    agent_permissions?: Record<string, string>;
+    tool_permissions?: Array<{ tool_name: string; allowed: boolean; allowed_agents?: string[] }>;
+  }): Promise<MCPConnection> {
+    return this.request<MCPConnection>(`/api/connections/${id}/permissions`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getConnectionTools(id: string, agentRole?: string): Promise<ToolWithPermission[]> {
+    const params = agentRole ? `?agent_role=${encodeURIComponent(agentRole)}` : "";
+    return this.request<ToolWithPermission[]>(`/api/connections/${id}/tools${params}`);
+  }
+
+  async getServicePresets(): Promise<ServicePreset[]> {
+    return this.request<ServicePreset[]>("/api/connections/presets");
+  }
+
+  async getSetupGuide(service: string): Promise<SetupGuide> {
+    return this.request<SetupGuide>(`/api/connections/setup/${service}`);
+  }
+
+  async updateConnectionAutomation(id: string, config: Partial<AutomationConfig>): Promise<MCPConnection> {
+    return this.request<MCPConnection>(`/api/connections/${id}/automation`, {
+      method: "PUT",
+      body: JSON.stringify({ automation_config: config }),
+    });
+  }
+
+  async getPipelineActivity(pipelineId: string): Promise<ConnectionToolCall[]> {
+    return this.request<ConnectionToolCall[]>(`/api/connections/activity/${pipelineId}`);
+  }
+
+  async startOAuth(service: string, data?: {
+    connection_id?: string;
+    display_name?: string;
+  }): Promise<OAuthStartResult> {
+    return this.request<OAuthStartResult>(`/api/connections/oauth/start/${service}`, {
+      method: "POST",
+      body: JSON.stringify(data ?? {}),
     });
   }
 

@@ -100,6 +100,8 @@ async def run_architect_agent(
         model=model,
         max_retries=max_retries,
         memory_context=memory_context or None,
+        agent_role="architect",
+        org_id=org_id or None,
     )
 
 

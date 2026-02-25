@@ -97,6 +97,8 @@ async def run_researcher_agent(
         model=model,
         max_retries=max_retries,
         memory_context=memory_context or None,
+        agent_role="researcher",
+        org_id=org_id or None,
     )
 
 

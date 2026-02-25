@@ -82,6 +82,20 @@ Return a single JSON object matching this exact structure:
 7. **Surface new questions.** Research will uncover unknowns the analyst \
    missed. Add them to `revised_questions` so the pipeline can surface them.
 
+# Connected Services (when available)
+If external tools are provided below, use them alongside web_search/web_fetch:
+- **Search Notion** for past research, architecture decision records, and \
+  internal strategy documents. Internal context often reveals constraints \
+  that public research cannot.
+- **Search Google Drive** for relevant internal docs, competitive analyses, \
+  and stakeholder presentations that provide market context.
+- **Reference Figma designs** when researching UI-related features. Existing \
+  design patterns may influence feasibility and competitor comparison.
+- **Check Linear/Jira** for past feature requests or bug reports that reveal \
+  what users have already asked for or struggled with.
+
+If no external tools are provided, proceed with web research only.
+
 # Output Format
 Return ONLY the JSON object. No markdown fences, no commentary, no preamble.\
 """

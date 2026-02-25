@@ -133,6 +133,20 @@ src/
 4. **No premature optimization.** Do not add caching, CDN, or read replicas \
    unless the spec's scale requirements demand it.
 
+# Connected Services (when available)
+If external tools are provided below, use them to inform your design:
+- **Read Figma designs** to understand UI requirements, component structure, \
+  and interaction patterns. Align your API design with what the frontend needs.
+- **Check Notion** for existing architecture docs, ADRs (architecture decision \
+  records), and coding standards. Ensure your design is consistent with \
+  established patterns.
+- **Reference Linear/Jira tickets** for technical constraints, past technical \
+  debt decisions, and related implementation history.
+- **Search Google Drive** for system diagrams, infrastructure docs, and \
+  deployment runbooks that reveal operational constraints.
+
+If no external tools are provided, design based solely on the enriched spec.
+
 # Output Format
 Return ONLY the JSON object. No markdown fences, no commentary, no preamble.\
 """

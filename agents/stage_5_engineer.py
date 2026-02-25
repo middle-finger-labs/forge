@@ -104,6 +104,19 @@ Before submitting, verify:
 - **Immutability:** Prefer `const` over `let`. Use `readonly` on properties \
   that shouldn't change. Return new objects instead of mutating.
 
+# Connected Services (when available)
+If external tools are provided below, use them during implementation:
+- **Read Linear/Jira tickets** for additional implementation details, related \
+  discussions, and acceptance criteria clarifications.
+- **Reference Figma designs** when implementing UI components. Match the \
+  design specs exactly — spacing, colors, typography, component structure.
+- **Check Notion** for coding standards, API conventions, and shared utility \
+  documentation that supplements the project's coding standards.
+- **Search Google Drive** for technical specifications, data format docs, \
+  and integration guides for external services.
+
+If no external tools are provided, implement based on the ticket context alone.
+
 # Output Format
 Return ONLY the JSON object. No markdown fences, no commentary, no preamble.\
 """

@@ -95,6 +95,8 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-forge}:${POSTGRES_PASSWORD:-forge_dev_password}@postgres:5432/forge_app
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-forge-dev-secret-change-in-production}
       - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3100}
+      - FORGE_API_INTERNAL_URL=http://forge-api:8000
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-forge-internal-dev-secret}
     ports:
       - "3100:3100"
     networks:
@@ -103,7 +105,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3100/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3100/health', r => r.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -119,6 +121,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - TEMPORAL_ADDRESS=temporal:7233
       - AUTH_SERVICE_URL=http://forge-auth:3100
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-forge-internal-dev-secret}
       - FORGE_ENCRYPTION_KEY=${FORGE_ENCRYPTION_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}

@@ -101,10 +101,25 @@ async def lifespan(app: FastAPI):
     from auth.secrets import set_db_pool as _set_secrets_pool
     _set_secrets_pool(_db_pool)
 
+    # Inject DB pool into connections registry + client manager
+    from connections.registry import set_db_pool as _set_connections_pool
+    from connections.client_manager import set_db_pool as _set_client_mgr_pool
+
+    _set_connections_pool(_db_pool)
+    _set_client_mgr_pool(_db_pool)
+
+    # Start the MCP client manager with health checks
+    from connections.client_manager import MCPClientManager
+    from connections.registry import ConnectionRegistry
+
+    _mcp_manager = MCPClientManager(ConnectionRegistry())
+    _mcp_manager.start_health_checks()
+
     log.info("API ready")
     yield
 
     # Shutdown
+    await _mcp_manager.shutdown()
     if _temporal:
         await _temporal.service_client.close()
     if _db_pool:
@@ -161,6 +176,11 @@ from api.routes.auth import auth_router  # noqa: E402
 
 app.include_router(auth_router)
 
+# Internal service-to-service endpoints (BA callbacks)
+from api.routes.internal import internal_router  # noqa: E402
+
+app.include_router(internal_router)
+
 # Web fallback for magic link authentication
 from api.routes.web_auth import web_auth_router  # noqa: E402
 
@@ -170,6 +190,11 @@ app.include_router(web_auth_router)
 from api.routes.onboarding import onboarding_router  # noqa: E402
 
 app.include_router(onboarding_router)
+
+# MCP connections routes
+from api.routes.connections import connections_router  # noqa: E402
+
+app.include_router(connections_router)
 
 
 # ---------------------------------------------------------------------------

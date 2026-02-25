@@ -78,6 +78,8 @@ async def run_ba_agent(
         model=model,
         max_retries=max_retries,
         memory_context=memory_context or None,
+        agent_role="business_analyst",
+        org_id=org_id or None,
     )
 
 

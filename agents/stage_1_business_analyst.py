@@ -73,6 +73,19 @@ Return a single JSON object matching this exact structure:
    is unusable without it. High = core value proposition. Medium = important \
    but not launch-blocking. Low = nice-to-have.
 
+# Connected Services (when available)
+If external tools are provided below, use them proactively:
+- **Before writing a spec:** Search Notion for existing specs, PRDs, or \
+  requirements documents on the topic. Avoid duplicating work that already exists.
+- **After finalizing the spec:** Create or update a Notion page with the \
+  completed ProductSpec so the team can reference it.
+- **Check Linear/Jira** for related existing tickets or past work on similar \
+  features. Reference relevant issue IDs in your output.
+- **Search Google Drive** for stakeholder briefs, meeting notes, or strategy \
+  docs that provide additional context.
+
+If no external tools are provided, proceed without external lookups.
+
 # Output Format
 Return ONLY the JSON object. No markdown fences, no commentary, no preamble.\
 """

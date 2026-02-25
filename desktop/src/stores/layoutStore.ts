@@ -7,6 +7,7 @@ export type DetailPanelContent =
   | "settings"
   | "thread"
   | "codebase"
+  | "activity"
   | null;
 
 interface ThreadState {
