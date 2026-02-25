@@ -38,6 +38,8 @@ export const auth = betterAuth({
     "http://localhost:3000",
     "http://localhost:5173",
     process.env.BETTER_AUTH_URL ?? "http://localhost:3100",
+    // Trust any Railway-generated domain
+    "https://*.up.railway.app",
   ],
 
   baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3100",
