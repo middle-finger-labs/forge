@@ -1,6 +1,7 @@
 # Stage 1: Build the React app
 FROM node:22-alpine AS build
 WORKDIR /app
+ARG CACHEBUST=1
 
 COPY package.json package-lock.json* ./
 RUN npm ci
