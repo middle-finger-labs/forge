@@ -67,16 +67,10 @@ export function ConnectScreen() {
   useEffect(() => {
     if (localCooldown <= 0) return;
     const timer = setInterval(() => {
-      setLocalCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setLocalCooldown((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [localCooldown]);
+  }, [localCooldown > 0]); // Only re-run when transitioning between active/inactive
 
   // ─── Status polling (3-second interval) ───────────
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -96,7 +90,14 @@ export function ConnectScreen() {
         if (result.status === "consumed" && result.token) {
           if (pollingRef.current) clearInterval(pollingRef.current);
           pollingRef.current = null;
-          await verifyMagicLink(result.token);
+          try {
+            await verifyMagicLink(result.token);
+          } catch (err) {
+            console.error("[Auth] Magic link verification failed:", err);
+          }
+        } else if (result.status === "expired" || result.status === "not_found") {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          pollingRef.current = null;
         }
       } catch {
         // Non-critical polling failure

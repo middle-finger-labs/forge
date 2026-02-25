@@ -252,16 +252,17 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       }
 
       // Extract session token from Set-Cookie header
-      const sessionToken = extractSessionToken(res.headers);
+      let sessionToken = extractSessionToken(res.headers);
       if (!sessionToken) {
         // Fallback: try to get token from response body
         const data = await res.json() as { token?: string };
         if (!data.token) {
           throw new Error("No session token received");
         }
+        sessionToken = data.token;
       }
 
-      const token = sessionToken!;
+      const token = sessionToken;
 
       // Fetch user profile using the session token
       const meRes = await tauriFetch(`${authBase}/api/auth/get-session`, {

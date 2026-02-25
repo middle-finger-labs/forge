@@ -10,7 +10,7 @@ import { useAuthDeepLink } from "@/hooks/useAuthDeepLink";
 import { Loader2, Wifi } from "lucide-react";
 
 function App() {
-  const { connectionStatus, restoreSession, initializeAuth, serverUrl, authToken } =
+  const { connectionStatus, restoreSession, initializeAuth, authToken } =
     useConnectionStore();
   const { biometricEnabled, biometricPromptShown } = useSettingsStore();
   const { isMobile } = useResponsiveLayout();
@@ -20,7 +20,7 @@ function App() {
   useAuthDeepLink();
 
   const [showEnrollSheet, setShowEnrollSheet] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(!!serverUrl && !!authToken);
+  const [isRestoring, setIsRestoring] = useState(true); // Always start with splash
 
   // Initialize auth from keyring, then attempt session restore
   useEffect(() => {
@@ -28,7 +28,6 @@ function App() {
       await initializeAuth();
       const { serverUrl: sUrl, authToken: aToken } = useConnectionStore.getState();
       if (sUrl && aToken) {
-        setIsRestoring(true);
         await restoreSession().finally(() => setIsRestoring(false));
       } else {
         setIsRestoring(false);

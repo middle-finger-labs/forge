@@ -6,6 +6,7 @@ with fallback buttons for manual action.
 
 from __future__ import annotations
 
+import html
 import os
 from datetime import datetime, timezone
 
@@ -87,24 +88,26 @@ def _render_landing(
     """Render the web fallback HTML page."""
     redirect_script = ""
     if auto_redirect and deep_link:
-        redirect_script = f'<script>window.location = "{deep_link}";</script>'
+        safe_link = html.escape(deep_link, quote=True)
+        redirect_script = f'<script>window.location = "{safe_link}";</script>'
 
     button_html = ""
     if deep_link:
-        button_html = f'<a href="{deep_link}" class="cta">Open in Forge</a>'
+        safe_link = html.escape(deep_link, quote=True)
+        button_html = f'<a href="{safe_link}" class="cta">Open in Forge</a>'
 
     error_html = ""
     if error:
-        error_html = f'<div class="error">{error}</div>'
+        error_html = f'<div class="error">{html.escape(error)}</div>'
 
-    message_html = f"<p>{message}</p>" if message else ""
+    message_html = f"<p>{html.escape(message)}</p>" if message else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{heading}</title>
+  <title>{html.escape(heading)}</title>
   {redirect_script}
   <style>
     body {{
@@ -186,7 +189,7 @@ def _render_landing(
 <body>
   <div class="container">
     <div class="logo-mark">F</div>
-    <h1>{heading}</h1>
+    <h1>{html.escape(heading)}</h1>
     {error_html}
     {message_html}
     {button_html}
