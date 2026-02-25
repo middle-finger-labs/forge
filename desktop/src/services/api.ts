@@ -3,6 +3,17 @@ import type { Conversation } from "@/types/conversation";
 import type { Message, MessageContent } from "@/types/message";
 import type { Agent, AgentRole } from "@/types/agent";
 import type { PipelineRun } from "@/types/pipeline";
+import type {
+  PromptVersion,
+  PromptVersionStats,
+  StatsHistoryPoint,
+  CompareResult,
+  DefaultPrompt,
+  TestPromptResult,
+  Lesson,
+  UpdateLessonRequest,
+  PipelineSummary,
+} from "@/types/prompts";
 
 export interface PaginatedMessages {
   messages: Message[];
@@ -141,6 +152,113 @@ export class ForgeAPI {
 
   async getAgentStatuses(): Promise<Agent[]> {
     return this.request<Agent[]>("/api/agents/status");
+  }
+
+  // ─── Prompts ─────────────────────────────────────────
+
+  async getPromptVersions(stage: number): Promise<PromptVersion[]> {
+    return this.request<PromptVersion[]>(
+      `/api/prompts/versions?stage=${stage}`
+    );
+  }
+
+  async createPromptVersion(req: {
+    stage: number;
+    system_prompt: string;
+    change_summary?: string;
+    activate?: boolean;
+  }): Promise<PromptVersion> {
+    return this.request<PromptVersion>("/api/prompts/versions", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async getPromptVersion(id: string): Promise<PromptVersion> {
+    return this.request<PromptVersion>(`/api/prompts/versions/${id}`);
+  }
+
+  async activatePromptVersion(id: string): Promise<void> {
+    return this.request<void>(`/api/prompts/versions/${id}/activate`, {
+      method: "PUT",
+    });
+  }
+
+  async getPromptVersionStats(id: string): Promise<PromptVersionStats> {
+    return this.request<PromptVersionStats>(
+      `/api/prompts/versions/${id}/stats`
+    );
+  }
+
+  async getPromptVersionStatsHistory(
+    id: string
+  ): Promise<StatsHistoryPoint[]> {
+    return this.request<StatsHistoryPoint[]>(
+      `/api/prompts/versions/${id}/stats/history`
+    );
+  }
+
+  async comparePromptVersions(a: string, b: string): Promise<CompareResult> {
+    return this.request<CompareResult>("/api/prompts/compare", {
+      method: "POST",
+      body: JSON.stringify({ version_a: a, version_b: b }),
+    });
+  }
+
+  async getDefaultPrompts(): Promise<DefaultPrompt[]> {
+    return this.request<DefaultPrompt[]>("/api/prompts/defaults");
+  }
+
+  async testPrompt(
+    stage: number,
+    systemPrompt: string,
+    sampleInput?: string
+  ): Promise<TestPromptResult> {
+    return this.request<TestPromptResult>("/api/prompts/test", {
+      method: "POST",
+      body: JSON.stringify({
+        stage,
+        system_prompt: systemPrompt,
+        sample_input: sampleInput,
+      }),
+    });
+  }
+
+  // ─── Lessons ─────────────────────────────────────────
+
+  async getLessons(agentRole?: string): Promise<Lesson[]> {
+    const params = agentRole ? `?agent_role=${agentRole}` : "";
+    return this.request<Lesson[]>(`/api/lessons${params}`);
+  }
+
+  async updateLesson(
+    id: string,
+    data: UpdateLessonRequest
+  ): Promise<Lesson> {
+    return this.request<Lesson>(`/api/lessons/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteLesson(id: string): Promise<void> {
+    return this.request<void>(`/api/lessons/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  async reinforceLesson(id: string): Promise<Lesson> {
+    return this.request<Lesson>(`/api/lessons/${id}/reinforce`, {
+      method: "POST",
+    });
+  }
+
+  // ─── Pipeline summary ───────────────────────────────
+
+  async getPipelineSummary(pipelineId: string): Promise<PipelineSummary> {
+    return this.request<PipelineSummary>(
+      `/api/pipelines/${pipelineId}/summary`
+    );
   }
 }
 

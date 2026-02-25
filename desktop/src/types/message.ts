@@ -40,6 +40,23 @@ export type MessageContent =
       type: "cost_update";
       totalCost: number;
       breakdown: Record<string, number>;
+    }
+  | {
+      type: "pipeline_summary";
+      pipelineId: string;
+      totalCost: number;
+      totalDuration: number;
+      perAgent: Record<
+        string,
+        {
+          cost: number;
+          duration: number;
+          firstPass: boolean;
+          attempts: number;
+          lessonsApplied: number;
+        }
+      >;
+      lessonsApplied: Array<{ agentRole: string; lesson: string }>;
     };
 
 // ─── Reactions ───────────────────────────────────────────

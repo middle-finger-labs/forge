@@ -166,3 +166,179 @@ kbd {
 .animate-in {
   animation: fade-slide-up 0.2s ease-out;
 }
+
+/*
+ * Mobile-specific styles
+ * Applied when the viewport is narrow or on mobile platforms.
+ * Uses 100dvh for proper mobile viewport handling.
+ */
+
+/* Disable hover effects on touch devices for snappier interactions */
+@media (hover: none) {
+  .app-shell__resize {
+    display: none;
+  }
+
+  /* Prevent text selection on swipeable elements */
+  [data-swipeable] {
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+  }
+
+  /* Scrollbar: invisible on mobile (use native momentum scroll) */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Bottom sheet slide-up animation */
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Safe area inset support for iOS notch / home indicator */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mobile-safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* ─── Dynamic type support ──────────────────────────── */
+/* Respect system font size preferences (iOS Dynamic Type / Android Font Scale) */
+@media (hover: none) {
+  html {
+    /* Use the system-preferred font size as base, clamped for safety */
+    font-size: clamp(14px, 1rem, 22px);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
+/* ─── Accessibility: focus indicators ───────────────── */
+/* Visible focus ring for keyboard navigation / VoiceOver */
+*:focus-visible {
+  outline: 2px solid var(--forge-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Accessibility: reduced motion ─────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-pulse,
+  .animate-spin,
+  .animate-bounce {
+    animation: none !important;
+  }
+}
+
+/* ─── Minimum touch targets ─────────────────────────── */
+/* Ensure 44px minimum for interactive elements on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Exceptions for inline / icon-only buttons already sized */
+  .touch-target-exempt,
+  [data-touch-exempt] {
+    min-height: auto;
+    min-width: auto;
+  }
+}
+
+/* ─── iOS pull-to-refresh spinner ───────────────────── */
+@keyframes native-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pull-refresh-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid var(--forge-border);
+  border-top-color: var(--forge-accent);
+  border-radius: 50%;
+  animation: native-spin 0.8s linear infinite;
+}
+
+/* ─── iOS large title collapsible header ────────────── */
+.large-title {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+  transition: font-size 0.15s ease, opacity 0.15s ease;
+}
+
+.large-title--collapsed {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+/* ─── Edge-to-edge display (Android) ────────────────── */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .edge-to-edge {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ─── Skeleton shimmer animation ────────────────────── */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--forge-hover) 25%,
+    var(--forge-border) 50%,
+    var(--forge-hover) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+/* ─── Color contrast helpers (WCAG AA) ──────────────── */
+/* Ensure muted text meets 4.5:1 ratio against dark backgrounds */
+.contrast-safe-muted {
+  color: #b4b5b7; /* 4.58:1 against #1a1d21 */
+}
+
+/* ─── Home indicator awareness ──────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .home-indicator-pad {
+    padding-bottom: max(env(safe-area-inset-bottom), 8px);
+  }
+}

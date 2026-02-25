@@ -1,0 +1,11 @@
+# Forge — App identifiers for fastlane
+
+# iOS
+app_identifier("com.middlefingerlabs.forge")
+apple_id(ENV["APPLE_ID"] || "your@email.com")
+team_id(ENV["APPLE_DEVELOPMENT_TEAM"] || "YOUR_TEAM_ID")
+itc_team_id(ENV["ITC_TEAM_ID"])
+
+# Android
+json_key_file(ENV["GOOGLE_PLAY_JSON_KEY_PATH"])
+package_name("com.middlefingerlabs.forge")

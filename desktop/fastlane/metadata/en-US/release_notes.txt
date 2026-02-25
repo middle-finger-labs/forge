@@ -1,0 +1,8 @@
+Initial release of Forge Mobile Companion:
+- Chat with AI agents in real-time
+- Create and monitor development pipelines
+- Swipe-to-approve pipeline stages
+- Push notifications for approvals and updates
+- Offline support with background sync
+- Biometric authentication (Face ID / fingerprint)
+- iOS large title navigation and haptic feedback

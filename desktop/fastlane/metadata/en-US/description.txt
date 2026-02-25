@@ -1,0 +1,22 @@
+Forge is a conversational interface for managing AI agent pipelines. Chat with specialized agents, run multi-stage software development pipelines, review and approve work, and monitor costs — all from your phone.
+
+KEY FEATURES
+
+- Conversational UI: Chat directly with AI agents (BA, Researcher, Architect, PM, Engineer, QA, CTO) in a familiar messaging interface
+- Pipeline Management: Create, monitor, and control multi-stage development pipelines from anywhere
+- Approval Queue: Swipe to approve or reject pipeline stages with instant haptic feedback
+- Real-time Updates: Push notifications for pipeline events, approval requests, and agent messages
+- Offline Support: Queue messages and approvals when offline, auto-sync when reconnected
+- Biometric Security: Face ID / Touch ID / fingerprint authentication for secure access
+- Universal App: Native experience on both iPhone and iPad
+
+BUILT FOR DEVELOPERS
+
+Forge puts your entire AI development team in your pocket. Whether you're reviewing code changes on the train, approving a deployment from the couch, or checking pipeline status at lunch — Forge keeps you connected to your agents without needing to be at your desk.
+
+SECURITY FIRST
+
+- Biometric authentication (Face ID, Touch ID, Android fingerprint)
+- Secure token storage in platform keychain
+- End-to-end encrypted WebSocket connections
+- No data stored on third-party servers

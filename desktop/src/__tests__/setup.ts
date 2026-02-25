@@ -59,6 +59,28 @@ vi.mock("@tauri-apps/plugin-global-shortcut", () => ({
 
 vi.mock("@tauri-apps/plugin-window-state", () => ({}));
 
+vi.mock("@tauri-apps/plugin-haptics", () => ({
+  impactFeedback: vi.fn(async () => {}),
+  notificationFeedback: vi.fn(async () => {}),
+}));
+
+vi.mock("@tauri-apps/plugin-biometric", () => ({
+  authenticate: vi.fn(async () => {}),
+  checkStatus: vi.fn(async () => ({
+    isAvailable: true,
+    biometryType: "faceId",
+  })),
+}));
+
+vi.mock("@tauri-apps/plugin-deep-link", () => ({
+  onOpenUrl: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-os", () => ({
+  platform: vi.fn(() => "macos"),
+  type: vi.fn(() => "macos"),
+}));
+
 // ─── Mock window.matchMedia ──────────────────────────────────
 
 Object.defineProperty(window, "matchMedia", {

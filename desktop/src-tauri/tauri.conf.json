@@ -25,6 +25,13 @@
       "entitlements": null,
       "frameworks": []
     },
+    "iOS": {
+      "developmentTeam": "YOUR_TEAM_ID",
+      "minimumSystemVersion": "15.0"
+    },
+    "android": {
+      "minSdkVersion": 26
+    },
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
@@ -49,8 +56,8 @@
         "title": "Forge",
         "width": 1280,
         "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
+        "minWidth": 360,
+        "minHeight": 640,
         "decorations": true,
         "transparent": false,
         "visible": true
@@ -72,6 +79,14 @@
     },
     "autostart": {
       "enabled": true
+    },
+    "deep-link": {
+      "mobile": {
+        "schemes": ["forge"]
+      },
+      "desktop": {
+        "schemes": ["forge"]
+      }
     }
   }
 }

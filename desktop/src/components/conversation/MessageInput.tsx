@@ -9,7 +9,10 @@ import {
 import { AGENT_REGISTRY, AGENT_ROLES } from "@/types/agent";
 import type { AgentRole } from "@/types/agent";
 import type { MessageContent } from "@/types/message";
-import { Paperclip, Send, Slash } from "lucide-react";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
+import { useHaptics } from "@/hooks/useHaptics";
+import { useOfflineStore } from "@/stores/offlineStore";
+import { Paperclip, Send, Slash, Plus, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Slash commands ─────────────────────────────────────
@@ -83,6 +86,8 @@ export function MessageInput({
   typingUsers = [],
   onTyping,
 }: MessageInputProps) {
+  const { isMobile } = useResponsiveLayout();
+  const { haptic } = useHaptics();
   const [text, setText] = useState("");
   const [showSlash, setShowSlash] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
@@ -94,13 +99,16 @@ export function MessageInput({
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
 
+  // Max textarea height: 4 lines on mobile (~96px), 200px on desktop
+  const maxTextareaHeight = isMobile ? 96 : 200;
+
   // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, [text]);
+    el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
+  }, [text, maxTextareaHeight]);
 
   // Typing indicator debounce
   const emitTyping = useCallback(
@@ -152,8 +160,8 @@ export function MessageInput({
       setText(value);
       emitTyping(value.length > 0);
 
-      // Detect slash command mode
-      if (value.startsWith("/")) {
+      // Slash commands only on desktop
+      if (!isMobile && value.startsWith("/")) {
         const cmd = value.slice(1).split(" ")[0];
         setSlashFilter(cmd);
         setShowSlash(true);
@@ -175,7 +183,7 @@ export function MessageInput({
         setShowMentions(false);
       }
     },
-    [emitTyping]
+    [emitTyping, isMobile]
   );
 
   // Send message
@@ -183,8 +191,10 @@ export function MessageInput({
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
 
-    // Check for slash command
-    if (trimmed.startsWith("/")) {
+    haptic("medium");
+
+    // Check for slash command (desktop only)
+    if (!isMobile && trimmed.startsWith("/")) {
       const parts = trimmed.split(" ");
       const cmd = parts[0].slice(1);
       const args = parts.slice(1).join(" ");
@@ -215,7 +225,7 @@ export function MessageInput({
     onSend(content);
     setText("");
     emitTyping(false);
-  }, [text, disabled, onSend, onSlashCommand, emitTyping]);
+  }, [text, disabled, onSend, onSlashCommand, emitTyping, isMobile, haptic]);
 
   // Keyboard handling
   const handleKeyDown = useCallback(
@@ -253,8 +263,9 @@ export function MessageInput({
         }
       }
 
-      // Enter to send (shift+enter for newline)
-      if (e.key === "Enter" && !e.shiftKey) {
+      // Enter to send (shift+enter for newline) — desktop only
+      // On mobile, Enter creates a newline; the send button handles sending
+      if (!isMobile && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
@@ -267,6 +278,7 @@ export function MessageInput({
       selectedIdx,
       text,
       handleSend,
+      isMobile,
     ]
   );
 
@@ -309,6 +321,97 @@ export function MessageInput({
     [text, onSend]
   );
 
+  // ── Mobile layout ──
+  const { networkStatus } = useOfflineStore();
+  const isOffline = isMobile && networkStatus === "offline";
+  const offlinePlaceholder = "Message will be sent when online";
+
+  if (isMobile) {
+    return (
+      <div className="px-3 pb-[env(safe-area-inset-bottom)] pt-2 shrink-0 border-t border-[var(--forge-border)]">
+        {/* Typing indicator */}
+        {typingUsers.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-1.5 px-1">
+            <TypingDots />
+            <span className="text-xs text-[var(--forge-text-muted)]">
+              {formatTypingUsers(typingUsers)}
+            </span>
+          </div>
+        )}
+
+        {/* Offline hint */}
+        {isOffline && text.trim() && (
+          <div className="flex items-center gap-1 mb-1.5 px-1 text-[10px] text-[var(--forge-warning)]">
+            <WifiOff className="w-3 h-3" />
+            <span>Message will be queued and sent when you reconnect</span>
+          </div>
+        )}
+
+        {/* @mention popup — positioned above input */}
+        {showMentions && filteredAgents.length > 0 && (
+          <MobileMentionPopup
+            agents={filteredAgents}
+            onSelect={(role) => {
+              const lastAt = text.lastIndexOf("@");
+              setText(text.slice(0, lastAt) + `@${role} `);
+              setShowMentions(false);
+              textareaRef.current?.focus();
+            }}
+          />
+        )}
+
+        {/* Input area */}
+        <div className={cn(
+          "flex items-end gap-2 rounded-2xl border bg-[var(--forge-bg)] px-3 py-2 transition-colors",
+          isOffline
+            ? "border-[var(--forge-warning)]/30 focus-within:border-[var(--forge-warning)]"
+            : "border-[var(--forge-border)] focus-within:border-[var(--forge-accent)]",
+        )}>
+          {/* Attachment / plus button */}
+          <button
+            aria-label="Attach file"
+            className="p-1 rounded-full text-[var(--forge-text-muted)] active:bg-[var(--forge-hover)] shrink-0 mb-0.5"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+
+          {/* Textarea — capped at 4 lines */}
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => handleChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder={isOffline ? offlinePlaceholder : (customPlaceholder ?? "Message...")}
+            rows={1}
+            className={cn(
+              "flex-1 bg-transparent text-sm text-[var(--forge-text)] resize-none outline-none",
+              "placeholder:text-[var(--forge-text-muted)]",
+              "min-h-[24px] py-0.5"
+            )}
+            style={{ maxHeight: `${maxTextareaHeight}px` }}
+          />
+
+          {/* Send button — prominent on mobile */}
+          <button
+            onClick={handleSend}
+            disabled={disabled || !text.trim()}
+            aria-label="Send message"
+            className={cn(
+              "p-2 rounded-full transition-colors shrink-0 mb-0.5",
+              text.trim()
+                ? "bg-[var(--forge-accent)] text-white active:opacity-80"
+                : "text-[var(--forge-text-muted)]"
+            )}
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop layout (existing) ──
   return (
     <div className="px-4 pb-4 pt-2 shrink-0">
       {/* Typing indicator */}
@@ -511,6 +614,42 @@ function MentionPopup({
             <span className="text-xs text-[var(--forge-text-muted)]">
               @{role}
             </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Mobile mention popup (above keyboard) ──────────────
+
+function MobileMentionPopup({
+  agents,
+  onSelect,
+}: {
+  agents: AgentRole[];
+  onSelect: (role: AgentRole) => void;
+}) {
+  return (
+    <div className="mb-2 rounded-xl border border-[var(--forge-border)] bg-[var(--forge-bg)] shadow-xl overflow-hidden max-h-52 overflow-y-auto">
+      <div className="px-3 py-2 border-b border-[var(--forge-border)] sticky top-0 bg-[var(--forge-bg)]">
+        <span className="text-[11px] font-medium text-[var(--forge-text-muted)] uppercase tracking-wider">
+          Mention an agent
+        </span>
+      </div>
+      {agents.map((role) => {
+        const info = AGENT_REGISTRY[role];
+        return (
+          <button
+            key={role}
+            onClick={() => onSelect(role)}
+            className="w-full flex items-center gap-3 px-3 py-3 text-sm text-left active:bg-[var(--forge-hover)] transition-colors"
+          >
+            <span className="text-lg">{info.emoji}</span>
+            <div className="min-w-0 flex-1">
+              <span className="font-medium text-white">{info.displayName}</span>
+              <span className="text-xs text-[var(--forge-text-muted)] ml-2">@{role}</span>
+            </div>
           </button>
         );
       })}

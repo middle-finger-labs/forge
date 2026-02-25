@@ -1,0 +1,100 @@
+# Forge iOS/Android Build & Distribution
+# Usage:
+#   bundle exec fastlane ios beta    — Build and upload to TestFlight
+#   bundle exec fastlane android beta — Build and upload to Play Console (internal track)
+
+default_platform(:ios)
+
+# ─── iOS ──────────────────────────────────────────────
+
+platform :ios do
+  desc "Build iOS release and upload to TestFlight"
+  lane :beta do
+    setup_ci if ENV["CI"]
+
+    # Build the Tauri iOS project
+    Dir.chdir("..") do
+      sh("pnpm tauri ios build")
+    end
+
+    # Find the generated IPA
+    ipa_path = Dir.glob("src-tauri/gen/apple/build/**/*.ipa").first
+    UI.user_error!("No IPA found after build") unless ipa_path
+
+    # Upload to TestFlight
+    api_key = app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_API_KEY"],
+      is_key_content_base64: true,
+      in_house: false
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ipa_path,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+      changelog: "Forge v#{ENV['VERSION'] || 'dev'} — Mobile companion app"
+    )
+  end
+
+  desc "Build iOS for local development (simulator)"
+  lane :dev do
+    Dir.chdir("..") do
+      sh("pnpm tauri ios dev")
+    end
+  end
+
+  desc "Register new test devices"
+  lane :register_device do |options|
+    device_name = options[:name] || UI.input("Device name: ")
+    device_udid = options[:udid] || UI.input("Device UDID: ")
+
+    register_devices(
+      devices: { device_name => device_udid }
+    )
+    UI.success("Device '#{device_name}' registered!")
+  end
+
+  desc "Take App Store screenshots"
+  lane :screenshots do
+    # Placeholder — use snapshot when UI tests are set up
+    UI.important("Screenshots are not yet automated. Capture manually on:")
+    UI.message("  - iPhone 15 Pro (6.1\")")
+    UI.message("  - iPhone 15 Pro Max (6.7\")")
+    UI.message("  - iPad Pro 12.9\"")
+  end
+end
+
+# ─── Android ──────────────────────────────────────────
+
+platform :android do
+  desc "Build Android release and upload to Play Console (internal track)"
+  lane :beta do
+    Dir.chdir("..") do
+      sh("pnpm tauri android build")
+    end
+
+    # Find the generated AAB
+    aab_path = Dir.glob("src-tauri/gen/android/app/build/outputs/bundle/**/*.aab").first
+    UI.user_error!("No AAB found after build") unless aab_path
+
+    upload_to_play_store(
+      track: "internal",
+      aab: aab_path,
+      json_key: ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
+      skip_upload_metadata: true,
+      skip_upload_changelogs: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Build Android for local development"
+  lane :dev do
+    Dir.chdir("..") do
+      sh("pnpm tauri android dev")
+    end
+  end
+end

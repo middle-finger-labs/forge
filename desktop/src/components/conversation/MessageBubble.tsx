@@ -4,6 +4,11 @@ import { AGENT_REGISTRY } from "@/types/agent";
 import type { AgentRole } from "@/types/agent";
 import type { Message, MessageContent } from "@/types/message";
 import { ApprovalCard } from "@/components/pipeline/ApprovalCard";
+import { PipelineSummaryCard } from "@/components/pipeline/PipelineSummaryCard";
+import { MobileApprovalCard } from "@/components/conversation/MobileApprovalCard";
+import { MobileCodeViewer } from "@/components/conversation/MobileCodeViewer";
+import { MobileDiffViewer } from "@/components/conversation/MobileDiffViewer";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import {
   Zap,
   FileDown,
@@ -20,6 +25,7 @@ import {
   CirclePlay,
   DollarSign,
   Terminal,
+  Maximize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +70,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const { author, content, createdAt } = message;
   const [hovered, setHovered] = useState(false);
+  const { isMobile } = useResponsiveLayout();
 
   const isSystem = author.type === "system";
   const isAgent = author.type === "agent";
@@ -86,6 +93,75 @@ export function MessageBubble({
     author.type === "agent" ? AGENT_REGISTRY[author.role]?.emoji : undefined;
   const agentRole = author.type === "agent" ? author.role : undefined;
 
+  // ── Mobile layout: top-aligned name (Slack/iMessage style), full-width ──
+  if (isMobile) {
+    return (
+      <div
+        className={cn(
+          "px-3 w-full",
+          !grouped && "mt-3 first:mt-0",
+          grouped && "mt-0.5"
+        )}
+      >
+        {/* Avatar + author line — only for non-grouped */}
+        {!grouped && (
+          <div className="flex items-center gap-2 mb-1">
+            {isAgent && authorEmoji ? (
+              <div
+                className={cn(
+                  "w-7 h-7 rounded-md flex items-center justify-center text-sm border",
+                  agentRole && AGENT_COLORS[agentRole]
+                )}
+              >
+                {authorEmoji}
+              </div>
+            ) : (
+              <div className="w-7 h-7 rounded-md bg-[var(--forge-accent)] flex items-center justify-center text-white text-xs font-bold">
+                {authorName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span
+              className={cn(
+                "font-semibold text-[13px]",
+                agentRole ? AGENT_NAME_COLORS[agentRole] : "text-white"
+              )}
+            >
+              {authorName}
+            </span>
+            <span className="text-[10px] text-[var(--forge-text-muted)]">
+              {formatTime(createdAt)}
+            </span>
+          </div>
+        )}
+
+        {/* Content blocks — full width, no alignment */}
+        <div className={cn("space-y-2", !grouped && "pl-9")}>
+          {content.map((block, i) => (
+            <MobileContentBlock key={i} block={block} />
+          ))}
+        </div>
+
+        {/* Reactions */}
+        {message.reactions && message.reactions.length > 0 && (
+          <div className={cn("flex flex-wrap gap-1 mt-1", !grouped && "pl-9")}>
+            {message.reactions.map((r, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--forge-hover)] text-xs"
+              >
+                {r.emoji}{" "}
+                <span className="text-[var(--forge-text-muted)]">
+                  {r.users.length}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Desktop layout (existing) ──
   return (
     <div
       className={cn(
@@ -403,7 +479,187 @@ function ContentBlock({ block }: { block: MessageContent }) {
           breakdown={block.breakdown}
         />
       );
+    case "pipeline_summary":
+      return <PipelineSummaryCard data={block} />;
   }
+}
+
+// ─── Mobile content blocks ──────────────────────────────────
+
+function MobileContentBlock({ block }: { block: MessageContent }) {
+  switch (block.type) {
+    case "text":
+      return <TextBlock text={block.text} />;
+    case "markdown":
+      return <MarkdownBlock markdown={block.markdown} />;
+    case "code":
+      return (
+        <MobileCodeBlock
+          code={block.code}
+          language={block.language}
+          filename={block.filename}
+        />
+      );
+    case "diff":
+      return <MobileDiffBlock diff={block.diff} filename={block.filename} />;
+    case "approval_request":
+      return (
+        <MobileApprovalCard
+          stage={block.stage}
+          summary={block.summary}
+          approvalId={block.approvalId}
+          pending={true}
+          onApprove={(comment) => {
+            console.log("Approved", block.approvalId, comment);
+          }}
+          onRequestChanges={(comment) => {
+            console.log("Changes requested", block.approvalId, comment);
+          }}
+        />
+      );
+    case "approval_response":
+      return (
+        <ApprovalResponseBlock
+          approved={block.approved}
+          comment={block.comment}
+        />
+      );
+    case "file_attachment":
+      return (
+        <FileAttachmentBlock
+          filename={block.filename}
+          url={block.url}
+          size={block.size}
+        />
+      );
+    case "pipeline_event":
+      return (
+        <div className="flex items-center gap-2 text-xs text-[var(--forge-text-muted)] py-1">
+          <div className="flex-1 h-px bg-[var(--forge-border)]" />
+          <span>{block.event.replace(/_/g, " ")}</span>
+          <div className="flex-1 h-px bg-[var(--forge-border)]" />
+        </div>
+      );
+    case "cost_update":
+      return (
+        <CostUpdateBlock
+          totalCost={block.totalCost}
+          breakdown={block.breakdown}
+        />
+      );
+    case "pipeline_summary":
+      return <PipelineSummaryCard data={block} />;
+  }
+}
+
+// ─── Mobile code block (compact with "View full" button) ────
+
+function MobileCodeBlock({
+  code,
+  language,
+  filename,
+}: {
+  code: string;
+  language: string;
+  filename?: string;
+}) {
+  const [showFullScreen, setShowFullScreen] = useState(false);
+  const lineCount = code.split("\n").length;
+  const previewLines = code.split("\n").slice(0, 6).join("\n");
+  const isTruncated = lineCount > 6;
+
+  return (
+    <>
+      <div className="rounded-lg border border-[var(--forge-border)] overflow-hidden w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--forge-bg)] border-b border-[var(--forge-border)]">
+          <span className="text-xs text-[var(--forge-text-muted)] truncate">
+            {filename ?? language}
+          </span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-[var(--forge-text-muted)]">
+              {lineCount} lines
+            </span>
+            <button
+              onClick={() => setShowFullScreen(true)}
+              className="p-1 rounded text-[var(--forge-text-muted)] active:bg-[var(--forge-hover)]"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Preview — horizontal scroll, capped at 6 lines */}
+        <pre className="p-3 bg-[var(--forge-bg)] overflow-x-auto">
+          <code className="text-xs text-[var(--forge-text)] font-mono leading-5">
+            {previewLines}
+          </code>
+        </pre>
+
+        {/* "View full" button */}
+        {isTruncated && (
+          <button
+            onClick={() => setShowFullScreen(true)}
+            className="w-full py-2 text-center text-xs text-[var(--forge-accent)] bg-[var(--forge-bg)] border-t border-[var(--forge-border)] active:bg-[var(--forge-hover)]"
+          >
+            View full ({lineCount} lines)
+          </button>
+        )}
+      </div>
+
+      {/* Full-screen viewer */}
+      {showFullScreen && (
+        <MobileCodeViewer
+          code={code}
+          language={language}
+          filename={filename}
+          onClose={() => setShowFullScreen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Mobile diff block (collapsed by default, tap to expand) ─
+
+function MobileDiffBlock({ diff, filename }: { diff: string; filename: string }) {
+  const [showFullScreen, setShowFullScreen] = useState(false);
+  const lines = diff.split("\n");
+  const additions = lines.filter((l) => l.startsWith("+")).length;
+  const deletions = lines.filter((l) => l.startsWith("-")).length;
+
+  return (
+    <>
+      <button
+        onClick={() => setShowFullScreen(true)}
+        className="w-full rounded-lg border border-[var(--forge-border)] overflow-hidden text-left active:bg-[var(--forge-hover)]"
+      >
+        <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--forge-bg)]">
+          <span className="text-xs text-[var(--forge-text-muted)] truncate flex-1">
+            {filename}
+          </span>
+          <div className="flex items-center gap-2 text-[11px] shrink-0 ml-2">
+            {additions > 0 && (
+              <span className="text-[var(--forge-success)]">+{additions}</span>
+            )}
+            {deletions > 0 && (
+              <span className="text-[var(--forge-error)]">-{deletions}</span>
+            )}
+            <Maximize2 className="w-3.5 h-3.5 text-[var(--forge-text-muted)]" />
+          </div>
+        </div>
+      </button>
+
+      {/* Full-screen diff viewer */}
+      {showFullScreen && (
+        <MobileDiffViewer
+          diff={diff}
+          filename={filename}
+          onClose={() => setShowFullScreen(false)}
+        />
+      )}
+    </>
+  );
 }
 
 // ─── Text block (basic inline markdown) ─────────────────

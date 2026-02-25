@@ -33,6 +33,10 @@ interface SettingsState {
   startMinimized: boolean;
   autoLaunch: boolean;
 
+  // Biometric auth (mobile)
+  biometricEnabled: boolean;
+  biometricPromptShown: boolean; // has the enrollment prompt been shown after first login?
+
   // API Keys
   apiKeys: Array<{ id: string; name: string; prefix: string; createdAt: string }>;
 
@@ -50,6 +54,8 @@ interface SettingsState {
   setCloseToTray: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
   setAutoLaunch: (enabled: boolean) => void;
+  setBiometricEnabled: (enabled: boolean) => void;
+  setBiometricPromptShown: (shown: boolean) => void;
   setAgentSettings: (role: AgentRole, settings: AgentSettings) => void;
   setApiKeys: (keys: SettingsState["apiKeys"]) => void;
   loadSettings: () => void;
@@ -67,6 +73,8 @@ interface PersistedSettings {
   closeToTray?: boolean;
   startMinimized?: boolean;
   autoLaunch?: boolean;
+  biometricEnabled?: boolean;
+  biometricPromptShown?: boolean;
   agentSettings?: Partial<Record<AgentRole, AgentSettings>>;
 }
 
@@ -88,6 +96,8 @@ function persistSettings(state: SettingsState) {
       closeToTray: state.closeToTray,
       startMinimized: state.startMinimized,
       autoLaunch: state.autoLaunch,
+      biometricEnabled: state.biometricEnabled,
+      biometricPromptShown: state.biometricPromptShown,
       agentSettings: state.agentSettings,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
@@ -151,6 +161,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   closeToTray: saved.closeToTray ?? true,
   startMinimized: saved.startMinimized ?? false,
   autoLaunch: saved.autoLaunch ?? false,
+  biometricEnabled: saved.biometricEnabled ?? false,
+  biometricPromptShown: saved.biometricPromptShown ?? false,
   apiKeys: [],
   agentSettings: saved.agentSettings ?? {},
   _loaded: false,
@@ -201,6 +213,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     persistSettings(get());
   },
 
+  setBiometricEnabled: (enabled) => {
+    set({ biometricEnabled: enabled });
+    persistSettings(get());
+  },
+
+  setBiometricPromptShown: (shown) => {
+    set({ biometricPromptShown: shown });
+    persistSettings(get());
+  },
+
   setAgentSettings: (role, settings) => {
     set((s) => ({
       agentSettings: { ...s.agentSettings, [role]: { ...s.agentSettings[role], ...settings } },
@@ -220,6 +242,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       closeToTray: s.closeToTray ?? true,
       startMinimized: s.startMinimized ?? false,
       autoLaunch: s.autoLaunch ?? false,
+      biometricEnabled: s.biometricEnabled ?? false,
+      biometricPromptShown: s.biometricPromptShown ?? false,
       agentSettings: s.agentSettings ?? {},
       _loaded: true,
     });

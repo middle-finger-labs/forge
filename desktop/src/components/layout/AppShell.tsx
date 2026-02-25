@@ -5,6 +5,7 @@ import { MainPanel } from "./MainPanel";
 import { DetailPanel } from "./DetailPanel";
 import { StatusBar } from "./StatusBar";
 import { QuickSwitcher } from "./QuickSwitcher";
+import { MobileShell } from "./MobileShell";
 import { ThreadView } from "@/components/conversation/ThreadView";
 import { NewPipelineModal } from "@/components/pipeline/NewPipelineModal";
 import { SettingsWindow } from "@/components/settings/SettingsWindow";
@@ -13,6 +14,7 @@ import { useLayoutStore } from "@/stores/layoutStore";
 import { useConversationStore } from "@/stores/conversationStore";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import {
   MOCK_AGENTS,
   MOCK_CONVERSATIONS,
@@ -21,6 +23,16 @@ import {
 } from "@/data/mockData";
 
 export function AppShell() {
+  const { mode } = useResponsiveLayout();
+
+  if (mode === "mobile") {
+    return <MobileShell />;
+  }
+
+  return <DesktopShell />;
+}
+
+function DesktopShell() {
   const {
     sidebarWidth,
     detailPanelOpen,
