@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS mcp_connections (
     default_permission    TEXT NOT NULL DEFAULT 'read',   -- 'none','read','write','full'
     agent_permissions     JSONB DEFAULT '{}',     -- {"ba": "write", "engineer": "read"}
     tool_permissions      JSONB DEFAULT '[]',     -- fine-grained tool overrides
+    automation_config     JSONB DEFAULT '{}',     -- {"auto_search_context": true, ...}
     enabled               BOOLEAN DEFAULT TRUE,
     last_connected_at     TIMESTAMPTZ,
     discovered_tools      JSONB DEFAULT '[]',     -- cached tool schemas from list_tools()

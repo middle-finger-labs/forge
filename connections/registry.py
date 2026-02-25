@@ -97,6 +97,7 @@ def _row_to_config(row: asyncpg.Record) -> ConnectionConfig:
         default_permission=PermissionLevel(row["default_permission"]),
         agent_permissions=agent_perms,
         tool_permissions=tool_perms,
+        automation_config=row.get("automation_config") or {},
         enabled=row["enabled"],
         last_connected_at=(
             row["last_connected_at"].isoformat() if row["last_connected_at"] else None
@@ -241,6 +242,8 @@ class ConnectionRegistry:
         default_permission: str | None = None,
         agent_permissions: dict[str, str] | None = None,
         tool_permissions: list[dict] | None = None,
+        automation_config: dict[str, bool] | None = None,
+        discovered_tools: list[dict] | None = None,
         enabled: bool | None = None,
     ) -> ConnectionConfig:
         """Update an existing connection.  Only non-None fields are changed."""
@@ -308,6 +311,16 @@ class ConnectionRegistry:
         if tool_permissions is not None:
             sets.append(f"tool_permissions = ${idx}::jsonb")
             params.append(json.dumps(tool_permissions))
+            idx += 1
+
+        if automation_config is not None:
+            sets.append(f"automation_config = ${idx}::jsonb")
+            params.append(json.dumps(automation_config))
+            idx += 1
+
+        if discovered_tools is not None:
+            sets.append(f"discovered_tools = ${idx}::jsonb")
+            params.append(json.dumps(discovered_tools))
             idx += 1
 
         params.append(connection_id)
