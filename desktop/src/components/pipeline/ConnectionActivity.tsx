@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Loader2, CheckCircle2, XCircle, Plug } from "lucide-react";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useMCPConnectionStore } from "@/stores/mcpConnectionStore";
 import type { ConnectionToolCall, ServiceType } from "@/types/connection";
 import { SERVICE_INFO } from "@/types/connection";
 
@@ -15,23 +15,18 @@ interface GroupedCalls {
 }
 
 export function ConnectionActivity({ pipelineId }: ConnectionActivityProps) {
-  const { serverUrl, authToken } = useConnectionStore();
+  const { getPipelineActivity } = useMCPConnectionStore();
   const [calls, setCalls] = useState<ConnectionToolCall[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!serverUrl || !authToken || !pipelineId) return;
+    if (!pipelineId) return;
     setLoading(true);
-    fetch(`${serverUrl}/api/connections/activity/${pipelineId}`, {
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-      },
-    })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: ConnectionToolCall[]) => setCalls(data))
+    getPipelineActivity(pipelineId)
+      .then((data) => setCalls(data))
       .catch(() => setCalls([]))
       .finally(() => setLoading(false));
-  }, [serverUrl, authToken, pipelineId]);
+  }, [pipelineId, getPipelineActivity]);
 
   if (loading) {
     return (

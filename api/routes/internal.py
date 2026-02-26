@@ -7,6 +7,7 @@ callback) and are protected by a shared secret, not user sessions.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 
 import asyncpg
 import structlog
@@ -85,12 +86,27 @@ async def send_magic_email(body: SendMagicEmailRequest, request: Request):
     )
 
     if updated == "UPDATE 0":
-        log.warning(
-            "no pending magic_link found for email",
+        log.info(
+            "no pending magic_link found, inserting record for BA-direct flow",
             email=email,
         )
-        # Still attempt to send — the token is valid even without our record
-        # (BA created the verification independently).
+        # BA-direct flow: the client called BA's sign-in/magic-link endpoint
+        # directly, so no __pending__ record exists.  Insert one to maintain
+        # the audit trail and keep the web landing page working.
+        from api.routes.auth import MAGIC_LINK_TTL_MINUTES, SERVER_PUBLIC_URL
+
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=MAGIC_LINK_TTL_MINUTES)
+        await pool.execute(
+            """
+            INSERT INTO magic_links (email, token, server_url, purpose, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
+            """,
+            email,
+            body.token,
+            SERVER_PUBLIC_URL,
+            "login",
+            expires_at,
+        )
 
     # Read invite context from magic_links (purpose, org_id, invite_by)
     row = await pool.fetchrow(

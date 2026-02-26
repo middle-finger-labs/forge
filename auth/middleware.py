@@ -33,7 +33,7 @@ log = structlog.get_logger().bind(component="auth_middleware")
 # Configuration
 # ---------------------------------------------------------------------------
 
-FORGE_AUTH_URL = os.environ.get("FORGE_AUTH_URL", "http://localhost:3100")
+FORGE_AUTH_URL = os.environ.get("AUTH_SERVICE_URL") or os.environ.get("FORGE_AUTH_URL", "http://localhost:3100")
 FORGE_AUTH_ENABLED = os.environ.get("FORGE_AUTH_ENABLED", "true").lower() in (
     "true",
     "1",
@@ -160,14 +160,11 @@ async def _validate_session(token: str) -> ForgeUser:
     """
     client = _get_http_client()
 
-    # Forward the token as both cookie variants so Better Auth
-    # recognises it regardless of whether it expects the __Secure- prefix.
+    # Use only the Authorization header. Sending the raw token as a cookie
+    # alongside Bearer confuses Better Auth (the cookie takes precedence and
+    # fails validation because it expects a properly set cookie, not a raw value).
     headers = {
         "Authorization": f"Bearer {token}",
-        "Cookie": (
-            f"{_SESSION_COOKIE_SECURE}={token}; "
-            f"{_SESSION_COOKIE}={token}"
-        ),
     }
 
     try:

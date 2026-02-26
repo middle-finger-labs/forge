@@ -514,6 +514,86 @@ async def verify_magic_link(body: MagicLinkVerifyRequest, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/auth/magic-link/complete-invite  — Finalise invite membership
+# ---------------------------------------------------------------------------
+
+
+@auth_router.post("/magic-link/complete-invite")
+async def complete_invite(
+    request: Request,
+    user: ForgeUser = Depends(get_current_user),
+):
+    """Complete an invite after BA verification.
+
+    Called by the desktop app after a magic link verify succeeds.  Looks up
+    the most recent unused invite for the authenticated user's email, adds
+    org membership if needed, and marks the invite as used.
+
+    Non-critical — the desktop client wraps this in try/catch.
+    """
+    pool = _get_db(request)
+    now = datetime.now(timezone.utc)
+    email = user.email.lower()
+
+    # Find the most recent pending invite for this email
+    row = await pool.fetchrow(
+        """
+        SELECT id, org_id, invite_by
+        FROM magic_links
+        WHERE email = $1
+          AND purpose = 'invite'
+          AND used_at IS NULL
+          AND expires_at > $2
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        email,
+        now,
+    )
+
+    if row is None:
+        # No pending invite — nothing to do (normal for regular logins)
+        return {"status": "no_invite"}
+
+    org_id = str(row["org_id"]) if row["org_id"] else None
+    if not org_id:
+        return {"status": "no_invite"}
+
+    # Add user to org if not already a member
+    existing_member = await pool.fetchval(
+        """
+        SELECT id FROM "member"
+        WHERE "userId" = $1 AND "organizationId" = $2
+        """,
+        user.user_id,
+        org_id,
+    )
+
+    if not existing_member:
+        await pool.execute(
+            """
+            INSERT INTO "member" (id, "userId", "organizationId", role, "createdAt")
+            VALUES ($1, $2, $3, $4, $5)
+            """,
+            str(uuid.uuid4()),
+            user.user_id,
+            org_id,
+            "member",
+            now,
+        )
+        log.info("invite membership created", user_id=user.user_id, org_id=org_id)
+
+    # Mark the invite as used
+    await pool.execute(
+        "UPDATE magic_links SET used_at = $1 WHERE id = $2",
+        now,
+        row["id"],
+    )
+
+    return {"status": "joined", "org_id": org_id}
+
+
+# ---------------------------------------------------------------------------
 # POST /api/auth/invite  — Send an org invitation (admin only)
 # ---------------------------------------------------------------------------
 

@@ -97,7 +97,7 @@ def _row_to_config(row: asyncpg.Record) -> ConnectionConfig:
         default_permission=PermissionLevel(row["default_permission"]),
         agent_permissions=agent_perms,
         tool_permissions=tool_perms,
-        automation_config=row.get("automation_config") or {},
+        automation_config=json.loads(row["automation_config"]) if isinstance(row.get("automation_config"), str) else (row.get("automation_config") or {}),
         enabled=row["enabled"],
         last_connected_at=(
             row["last_connected_at"].isoformat() if row["last_connected_at"] else None

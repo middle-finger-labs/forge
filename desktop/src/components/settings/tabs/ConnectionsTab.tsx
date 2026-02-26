@@ -9,12 +9,13 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useMCPConnectionStore } from "@/stores/mcpConnectionStore";
 import { Section } from "./GeneralTab";
 import { ConnectionConfigModal } from "../ConnectionConfigModal";
 import { ConnectionSetupWizard } from "../ConnectionSetupWizard";
-import type { MCPConnection, ServicePreset, ServiceType } from "@/types/connection";
+import type { ServiceType } from "@/types/connection";
 import { SERVICE_INFO } from "@/types/connection";
+import type { MCPConnection } from "@/types/connection";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -42,70 +43,39 @@ function capitalize(s: string): string {
 }
 
 export function ConnectionsTab() {
-  const { serverUrl, authToken } = useConnectionStore();
-  const [connections, setConnections] = useState<MCPConnection[]>([]);
-  const [presets, setPresets] = useState<ServicePreset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { connections, presets, loading, error, fetchAll, deleteConnection } =
+    useMCPConnectionStore();
 
   // Modal / wizard state
   const [configId, setConfigId] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardService, setWizardService] = useState<ServiceType | null>(null);
 
-  const fetchData = useCallback(async () => {
-    if (!serverUrl || !authToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      };
-      const [connRes, presetRes] = await Promise.all([
-        fetch(`${serverUrl}/api/connections`, { headers }),
-        fetch(`${serverUrl}/api/connections/presets`, { headers }),
-      ]);
-      if (!connRes.ok) throw new Error(`Failed to load connections (${connRes.status})`);
-      if (!presetRes.ok) throw new Error(`Failed to load presets (${presetRes.status})`);
-      setConnections(await connRes.json());
-      setPresets(await presetRes.json());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load connections");
-    } finally {
-      setLoading(false);
-    }
-  }, [serverUrl, authToken]);
-
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchAll();
+  }, [fetchAll]);
 
   const handleDisconnect = useCallback(
     async (id: string) => {
       try {
-        await fetch(`${serverUrl}/api/connections/${id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
-        setConnections((prev) => prev.filter((c) => c.id !== id));
+        await deleteConnection(id);
       } catch {
         /* best effort */
       }
     },
-    [serverUrl, authToken]
+    [deleteConnection]
   );
 
   // Listen for OAuth completion
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === "forge:oauth_complete" && e.data?.status === "success") {
-        fetchData();
+        fetchAll();
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [fetchData]);
+  }, [fetchAll]);
 
   // Split presets into connected vs available
   const connectedServices = new Set(connections.map((c) => c.service));
@@ -306,7 +276,7 @@ export function ConnectionsTab() {
       {/* Refresh */}
       <div className="flex justify-end">
         <button
-          onClick={fetchData}
+          onClick={fetchAll}
           className="flex items-center gap-1.5 text-xs cursor-pointer transition-colors"
           style={{ color: "var(--forge-text-muted)" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--forge-text)")}
@@ -322,7 +292,7 @@ export function ConnectionsTab() {
         <ConnectionConfigModal
           connectionId={configId}
           onClose={() => setConfigId(null)}
-          onSaved={fetchData}
+          onSaved={fetchAll}
         />
       )}
 
@@ -336,7 +306,7 @@ export function ConnectionsTab() {
           onComplete={() => {
             setWizardOpen(false);
             setWizardService(null);
-            fetchData();
+            fetchAll();
           }}
         />
       )}

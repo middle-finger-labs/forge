@@ -531,6 +531,22 @@ class MCPClientManager:
 # ---------------------------------------------------------------------------
 
 
+_client_manager: MCPClientManager | None = None
+
+
+def get_client_manager() -> MCPClientManager:
+    """Return the module-level MCPClientManager singleton.
+
+    Creates one on first call using the default ConnectionRegistry.
+    """
+    global _client_manager  # noqa: PLW0603
+    if _client_manager is None:
+        from connections.registry import ConnectionRegistry
+
+        _client_manager = MCPClientManager(ConnectionRegistry())
+    return _client_manager
+
+
 def _summarize_result(result: dict) -> str:
     """Extract a short text summary from a tool call result."""
     content = result.get("content", [])

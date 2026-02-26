@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Mail,
   ArrowRight,
@@ -23,7 +23,7 @@ import { useConnectionStore } from "@/stores/connectionStore";
  * Modes:
  * 1. No server URL → auto-discover from email domain, or show URL field
  * 2. Server URL known → show email input
- * 3. Awaiting magic link → "check your email" with polling, resend, open mail
+ * 3. Awaiting magic link → "check your email" with resend, open mail, deep link
  * 4. Password fallback → inline server URL + password fields
  */
 export function ConnectScreen() {
@@ -41,8 +41,6 @@ export function ConnectScreen() {
     setError,
     serverInfo,
     discoverServer,
-    checkMagicLinkStatus,
-    verifyMagicLink,
     login,
     setCooldownRemaining,
   } = useConnectionStore();
@@ -71,46 +69,6 @@ export function ConnectScreen() {
     }, 1000);
     return () => clearInterval(timer);
   }, [localCooldown > 0]); // Only re-run when transitioning between active/inactive
-
-  // ─── Status polling (3-second interval) ───────────
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!isAwaiting) {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-      return;
-    }
-
-    pollingRef.current = setInterval(async () => {
-      try {
-        const result = await checkMagicLinkStatus();
-        if (result.status === "consumed" && result.token) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          pollingRef.current = null;
-          try {
-            await verifyMagicLink(result.token);
-          } catch (err) {
-            console.error("[Auth] Magic link verification failed:", err);
-          }
-        } else if (result.status === "expired" || result.status === "not_found") {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-      } catch {
-        // Non-critical polling failure
-      }
-    }, 3000);
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, [isAwaiting, checkMagicLinkStatus, verifyMagicLink]);
 
   // ─── Handlers ─────────────────────────────────────
 

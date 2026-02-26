@@ -76,11 +76,6 @@ export interface ForgeOrg {
   memberCount: number;
 }
 
-export interface MagicLinkStatusResponse {
-  status: "pending" | "consumed" | "expired" | "not_found";
-  token?: string;
-}
-
 interface ConnectionState {
   // Connection
   serverUrl: string;
@@ -109,7 +104,6 @@ interface ConnectionState {
   requestMagicLink: (email: string) => Promise<void>;
   verifyMagicLink: (token: string, serverUrl?: string) => Promise<void>;
   discoverServer: (email: string) => Promise<string | null>;
-  checkMagicLinkStatus: () => Promise<MagicLinkStatusResponse>;
   logout: () => void;
   restoreSession: () => Promise<void>;
   initializeAuth: () => Promise<void>;
@@ -350,24 +344,19 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   requestMagicLink: async (email) => {
-    const { serverUrl } = get();
+    const { serverUrl, authUrl } = get();
+    const authBase = authUrl || serverUrl;
     set({ connectionStatus: "connecting", connectionError: null });
 
     try {
-      const res = await tauriFetch(`${serverUrl}/api/auth/magic-link`, {
+      const res = await tauriFetch(`${authBase}/api/auth/sign-in/magic-link`, {
         method: "POST",
         body: JSON.stringify({ email }),
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: "Request failed" })) as { detail?: string };
-        throw new Error(body.detail || `Request failed (${res.status})`);
-      }
-
-      // Check for cooldown_remaining from server
-      const data = await res.json().catch(() => ({})) as { cooldown_remaining?: number };
-      if (data.cooldown_remaining) {
-        set({ cooldownRemaining: data.cooldown_remaining });
+        const body = await res.json().catch(() => ({ message: "Request failed" })) as { message?: string };
+        throw new Error(body.message || `Request failed (${res.status})`);
       }
 
       set({
@@ -396,41 +385,117 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     set({ connectionStatus: "connecting", connectionError: null });
 
     try {
-      const res = await tauriFetch(`${serverUrl}/api/auth/magic-link/verify`, {
-        method: "POST",
-        body: JSON.stringify({ token }),
-      });
+      // Resolve auth URL from health endpoint (deep link only carries server URL)
+      let authBase = get().authUrl;
+      if (!authBase) {
+        try {
+          const healthRes = await tauriFetch(`${serverUrl}/api/health`);
+          if (healthRes.ok) {
+            const health = await healthRes.json() as { auth_url?: string };
+            if (health.auth_url) {
+              authBase = health.auth_url;
+              set({ authUrl: authBase });
+            }
+          }
+        } catch { /* fall through */ }
+      }
+      authBase = authBase || serverUrl;
+
+      // Verify token via Better Auth directly (GET with token query param)
+      const res = await tauriFetch(
+        `${authBase}/api/auth/magic-link/verify?token=${encodeURIComponent(token)}`
+      );
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: "Verification failed" })) as { detail?: string };
-        throw new Error(body.detail || `Verification failed (${res.status})`);
+        const body = await res.json().catch(() => ({ message: "Verification failed" })) as { message?: string };
+        throw new Error(body.message || `Verification failed (${res.status})`);
       }
 
-      const data = await res.json() as {
-        session_token: string;
-        user: { id: string; email: string; name: string; role: string };
-        org: { id: string; name: string; slug: string } | null;
-        server_url: string;
-        is_new_user: boolean;
-      };
+      // Extract session token from Set-Cookie header (same as login method)
+      let sessionToken = extractSessionToken(res.headers);
+      if (!sessionToken) {
+        const data = await res.json() as { token?: string };
+        if (!data.token) {
+          throw new Error("No session token received");
+        }
+        sessionToken = data.token;
+      }
+
+      const authToken = sessionToken;
+
+      // Fetch user profile using the session token (same pattern as login)
+      const meRes = await tauriFetch(`${authBase}/api/auth/get-session`, {
+        token: authToken,
+      });
+
+      let user: ForgeUser = { id: "", email: "", name: "", role: "member", createdAt: new Date().toISOString() };
+      let org: ForgeOrg | null = null;
+
+      if (meRes.ok) {
+        const session = await meRes.json() as {
+          user?: { id: string; email: string; name: string };
+          session?: { activeOrganizationId?: string };
+        };
+        if (session.user) {
+          user = {
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.name || session.user.email.split("@")[0],
+            role: "member",
+            createdAt: new Date().toISOString(),
+          };
+        }
+
+        // Try to complete invite (non-critical)
+        try {
+          await tauriFetch(`${serverUrl}/api/auth/magic-link/complete-invite`, {
+            method: "POST",
+            token: authToken,
+          });
+        } catch { /* non-critical */ }
+
+        // Get org info — same pattern as login method
+        const orgId = session.session?.activeOrganizationId;
+        if (orgId) {
+          try {
+            const orgRes = await tauriFetch(`${authBase}/api/auth/organization/get-full-organization`, {
+              token: authToken,
+            });
+            if (orgRes.ok) {
+              const orgData = await orgRes.json() as { id: string; name: string; slug: string };
+              org = { id: orgData.id, name: orgData.name, slug: orgData.slug, plan: "free", memberCount: 1 };
+            }
+          } catch { /* non-critical */ }
+        }
+
+        // If no active org, list orgs and pick the first
+        if (!org) {
+          try {
+            const orgsRes = await tauriFetch(`${authBase}/api/auth/organization/list`, {
+              token: authToken,
+            });
+            if (orgsRes.ok) {
+              const orgs = await orgsRes.json() as Array<{ id: string; name: string; slug: string }>;
+              if (Array.isArray(orgs) && orgs.length > 0) {
+                org = { id: orgs[0].id, name: orgs[0].name, slug: orgs[0].slug, plan: "free", memberCount: 1 };
+                try {
+                  await tauriFetch(`${authBase}/api/auth/organization/set-active`, {
+                    method: "POST",
+                    body: JSON.stringify({ organizationId: orgs[0].id }),
+                    token: authToken,
+                  });
+                } catch { /* non-critical */ }
+              }
+            }
+          } catch { /* non-critical */ }
+        }
+      }
 
       set({
-        serverUrl: data.server_url || serverUrl,
-        authToken: data.session_token,
-        user: {
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.name,
-          role: data.user.role as "admin" | "member" | "viewer",
-          createdAt: new Date().toISOString(),
-        },
-        org: data.org ? {
-          id: data.org.id,
-          name: data.org.name,
-          slug: data.org.slug,
-          plan: "free",
-          memberCount: 1,
-        } : null,
+        serverUrl,
+        authToken,
+        user,
+        org,
         connectionStatus: "authenticated",
         connectionError: null,
         magicLinkEmail: null,
@@ -438,8 +503,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       });
 
       savePersisted({
-        serverUrl: data.server_url || serverUrl,
-        authToken: data.session_token,
+        serverUrl,
+        authToken,
         rememberMe: true,
       });
     } catch (err) {
@@ -565,25 +630,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
 
     return null;
-  },
-
-  checkMagicLinkStatus: async () => {
-    const { serverUrl, magicLinkEmail } = get();
-    if (!serverUrl || !magicLinkEmail) {
-      return { status: "not_found" as const };
-    }
-
-    try {
-      const res = await tauriFetch(
-        `${serverUrl}/api/auth/magic-link/status?email=${encodeURIComponent(magicLinkEmail)}`
-      );
-      if (res.ok) {
-        return await res.json() as MagicLinkStatusResponse;
-      }
-    } catch {
-      // Polling failure is non-critical
-    }
-    return { status: "not_found" as const };
   },
 
   initializeAuth: async () => {

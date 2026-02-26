@@ -1473,9 +1473,15 @@ async def _run_connection_hook(method: str, *args) -> None:
         hooks = get_pipeline_hooks()
         coro = getattr(hooks, method)(*args)
         await coro
-    except Exception:
-        # Best-effort — never block the pipeline
-        pass
+    except Exception as exc:
+        # Best-effort — never block the pipeline, but log so failures are debuggable
+        pipeline_log = structlog.get_logger().bind(component="connection_hooks")
+        pipeline_log.warning(
+            "connection hook failed",
+            hook=method,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
 
 
 async def _persist_ticket_start(

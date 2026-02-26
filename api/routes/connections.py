@@ -135,7 +135,7 @@ class ConnectionResponse(BaseModel):
     default_permission: str = "read"
     agent_permissions: dict[str, str] = {}
     tool_permissions: list[dict] = []
-    automation_config: dict[str, bool] = {}
+    automation_config: dict = {}
     enabled: bool = True
     last_connected_at: str | None = None
     discovered_tools: list[dict] = []
@@ -852,7 +852,7 @@ async def test_connection(
             tool_count=len(tools),
             message=f"Connected successfully. Found {len(tools)} tool(s).",
         )
-    except Exception as exc:
+    except BaseException as exc:
         log.warning(
             "connection test failed",
             connection_id=connection_id,
@@ -879,7 +879,7 @@ async def discover_tools(
     mgr = get_client_manager()
     try:
         tools = await mgr.list_tools(connection_id)
-    except Exception as exc:
+    except BaseException as exc:
         log.error("tool discovery failed", connection_id=connection_id, error=str(exc))
         raise HTTPException(
             status_code=502,

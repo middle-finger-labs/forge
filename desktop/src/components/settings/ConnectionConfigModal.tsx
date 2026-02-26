@@ -13,7 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useMCPConnectionStore } from "@/stores/mcpConnectionStore";
 import { AGENT_REGISTRY, AGENT_ROLES } from "@/types/agent";
 import type {
   MCPConnection,
@@ -36,7 +36,7 @@ export function ConnectionConfigModal({
   onClose,
   onSaved,
 }: ConnectionConfigModalProps) {
-  const { serverUrl, authToken } = useConnectionStore();
+  const store = useMCPConnectionStore();
   const [conn, setConn] = useState<MCPConnection | null>(null);
   const [tools, setTools] = useState<ToolWithPermission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,25 +53,12 @@ export function ConnectionConfigModal({
   const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
   const [automationFlags, setAutomationFlags] = useState<AutomationConfig>({ ...DEFAULT_AUTOMATION });
 
-  const headers = useCallback(
-    (): Record<string, string> => ({
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    }),
-    [authToken]
-  );
-
   // Fetch connection + tools
   useEffect(() => {
-    if (!serverUrl || !authToken) return;
     setLoading(true);
     Promise.all([
-      fetch(`${serverUrl}/api/connections/${connectionId}`, { headers: headers() }).then((r) =>
-        r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))
-      ),
-      fetch(`${serverUrl}/api/connections/${connectionId}/tools`, { headers: headers() }).then(
-        (r) => (r.ok ? r.json() : [])
-      ),
+      store.getConnection(connectionId),
+      store.getConnectionTools(connectionId),
     ])
       .then(([connData, toolData]: [MCPConnection, ToolWithPermission[]]) => {
         setConn(connData);
@@ -87,7 +74,7 @@ export function ConnectionConfigModal({
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
       .finally(() => setLoading(false));
-  }, [serverUrl, authToken, connectionId, headers]);
+  }, [connectionId, store]);
 
   // Escape to close
   useEffect(() => {
@@ -102,45 +89,28 @@ export function ConnectionConfigModal({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(`${serverUrl}/api/connections/${connectionId}/test`, {
-        method: "POST",
-        headers: headers(),
-      });
-      const data = await res.json();
+      const data = await store.testConnection(connectionId);
       setTestResult({ status: data.status, message: data.message ?? "" });
     } catch {
       setTestResult({ status: "error", message: "Request failed" });
     } finally {
       setTesting(false);
     }
-  }, [serverUrl, connectionId, headers]);
+  }, [connectionId, store]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     setError(null);
     try {
-      // Save permissions
-      const permRes = await fetch(`${serverUrl}/api/connections/${connectionId}/permissions`, {
-        method: "PUT",
-        headers: headers(),
-        body: JSON.stringify({
-          default_permission: defaultPerm,
-          agent_permissions: agentPerms,
-          tool_permissions: Object.entries(toolToggles).map(([name, allowed]) => ({
-            tool_name: name,
-            allowed,
-          })),
-        }),
+      await store.updatePermissions(connectionId, {
+        default_permission: defaultPerm,
+        agent_permissions: agentPerms,
+        tool_permissions: Object.entries(toolToggles).map(([name, allowed]) => ({
+          tool_name: name,
+          allowed,
+        })),
       });
-      if (!permRes.ok) throw new Error(`Save failed (${permRes.status})`);
-
-      // Save automation config
-      const autoRes = await fetch(`${serverUrl}/api/connections/${connectionId}/automation`, {
-        method: "PUT",
-        headers: headers(),
-        body: JSON.stringify({ automation_config: automationFlags }),
-      });
-      if (!autoRes.ok) throw new Error(`Automation save failed (${autoRes.status})`);
+      await store.updateAutomation(connectionId, automationFlags);
       onSaved();
       onClose();
     } catch (err) {
@@ -148,7 +118,7 @@ export function ConnectionConfigModal({
     } finally {
       setSaving(false);
     }
-  }, [serverUrl, connectionId, headers, defaultPerm, agentPerms, toolToggles, automationFlags, onSaved, onClose]);
+  }, [connectionId, store, defaultPerm, agentPerms, toolToggles, automationFlags, onSaved, onClose]);
 
   if (loading || !conn) {
     return (

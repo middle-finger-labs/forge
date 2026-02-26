@@ -12,7 +12,7 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useMCPConnectionStore } from "@/stores/mcpConnectionStore";
 import { AGENT_REGISTRY, AGENT_ROLES } from "@/types/agent";
 import type {
   ServiceType,
@@ -37,7 +37,7 @@ export function ConnectionSetupWizard({
   onClose,
   onComplete,
 }: ConnectionSetupWizardProps) {
-  const { serverUrl, authToken } = useConnectionStore();
+  const store = useMCPConnectionStore();
   const [step, setStep] = useState<Step>(initialService ? "Authenticate" : "Service");
   const [selectedService, setSelectedService] = useState<ServiceType | null>(initialService);
   const [presets, setPresets] = useState<ServicePreset[]>([]);
@@ -61,39 +61,27 @@ export function ConnectionSetupWizard({
   // Created connection
   const [createdConn, setCreatedConn] = useState<MCPConnection | null>(null);
 
-  const headers = useCallback(
-    (): Record<string, string> => ({
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    }),
-    [authToken]
-  );
-
   // Fetch presets on mount
   useEffect(() => {
-    if (!serverUrl || !authToken) return;
-    fetch(`${serverUrl}/api/connections/presets`, { headers: headers() })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: ServicePreset[]) => setPresets(data))
-      .catch(() => {});
-  }, [serverUrl, authToken, headers]);
+    store.fetchPresets().then(() => {
+      setPresets(useMCPConnectionStore.getState().presets);
+    });
+  }, [store]);
 
   // Fetch setup guide when service is selected
   useEffect(() => {
-    if (!selectedService || !serverUrl || !authToken) return;
+    if (!selectedService) return;
     setLoading(true);
-    fetch(`${serverUrl}/api/connections/setup/${selectedService}`, { headers: headers() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: SetupGuide | null) => {
+    store
+      .getSetupGuide(selectedService)
+      .then((data: SetupGuide) => {
         setGuide(data);
-        if (data) {
-          setDefaultPerm(data.default_permission);
-          setAgentPerms({ ...data.agent_permissions });
-        }
+        setDefaultPerm(data.default_permission);
+        setAgentPerms({ ...data.agent_permissions });
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [selectedService, serverUrl, authToken, headers]);
+  }, [selectedService, store]);
 
   // Listen for OAuth completion
   useEffect(() => {
@@ -136,49 +124,32 @@ export function ConnectionSetupWizard({
     setOauthPending(true);
     setError(null);
     try {
-      const res = await fetch(`${serverUrl}/api/connections/oauth/start/${selectedService}`, {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) throw new Error(`OAuth start failed (${res.status})`);
-      const data = await res.json();
-      // Open OAuth in popup
+      const data = await store.startOAuth(selectedService);
       window.open(data.authorize_url, "forge_oauth", "width=600,height=700");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start OAuth");
       setOauthPending(false);
     }
-  }, [selectedService, serverUrl, headers]);
+  }, [selectedService, store]);
 
   const createWithToken = useCallback(async () => {
     if (!selectedService || !guide) return;
     setLoading(true);
     setError(null);
     try {
-      // Build credential string from fields
       const credentialValue =
         guide.credential_fields.length === 1
           ? credentials[guide.credential_fields[0].field] ?? ""
           : JSON.stringify(credentials);
 
       const preset = presets.find((p) => p.service === selectedService);
-      const res = await fetch(`${serverUrl}/api/connections`, {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({
-          service: selectedService,
-          display_name: preset?.display_name ?? selectedService,
-          credentials: credentialValue,
-          default_permission: defaultPerm,
-          agent_permissions: agentPerms,
-        }),
+      const conn = await store.createConnection({
+        service: selectedService,
+        display_name: preset?.display_name ?? selectedService,
+        credentials: credentialValue,
+        default_permission: defaultPerm,
+        agent_permissions: agentPerms,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: "Failed" }));
-        throw new Error(body.detail || `Create failed (${res.status})`);
-      }
-      const conn: MCPConnection = await res.json();
       setCreatedConn(conn);
       setStep("Test");
     } catch (err) {
@@ -186,7 +157,7 @@ export function ConnectionSetupWizard({
     } finally {
       setLoading(false);
     }
-  }, [selectedService, guide, credentials, presets, serverUrl, headers, defaultPerm, agentPerms]);
+  }, [selectedService, guide, credentials, presets, store, defaultPerm, agentPerms]);
 
   const runTest = useCallback(async () => {
     if (!createdConn) {
@@ -196,43 +167,31 @@ export function ConnectionSetupWizard({
     }
     setTestStatus("testing");
     try {
-      const res = await fetch(`${serverUrl}/api/connections/${createdConn.id}/test`, {
-        method: "POST",
-        headers: headers(),
-      });
-      const data = await res.json();
+      const data = await store.testConnection(createdConn.id);
       setTestStatus(data.status === "ok" ? "ok" : "error");
       setTestMessage(data.message ?? "");
     } catch {
       setTestStatus("error");
       setTestMessage("Connection test failed");
     }
-  }, [createdConn, serverUrl, headers]);
+  }, [createdConn, store]);
 
   const savePermissions = useCallback(async () => {
     if (!createdConn) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${serverUrl}/api/connections/${createdConn.id}/permissions`,
-        {
-          method: "PUT",
-          headers: headers(),
-          body: JSON.stringify({
-            default_permission: defaultPerm,
-            agent_permissions: agentPerms,
-          }),
-        }
-      );
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      await store.updatePermissions(createdConn.id, {
+        default_permission: defaultPerm,
+        agent_permissions: agentPerms,
+      });
       setStep("Done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save permissions");
     } finally {
       setLoading(false);
     }
-  }, [createdConn, serverUrl, headers, defaultPerm, agentPerms]);
+  }, [createdConn, store, defaultPerm, agentPerms]);
 
   const stepIndex = STEPS.indexOf(step);
   const info = selectedService
